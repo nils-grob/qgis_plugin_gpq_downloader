@@ -9,6 +9,7 @@ Next steps:
  * Fix .toml so it'll actually pip install (and check to make sure dependencies are right)
  * Automatically open the file after downloading it.
  * Better selection of download file location (ideally more in line with how qgis works)
+ * Button / toolbar? And better selection of area to download
  * Distribute as a QGIS plugin, figure out how dependencies work
  * Check if geopackage is working, add other formats
  * Add a progress bar

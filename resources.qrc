@@ -1,4 +1,5 @@
 <RCC>
     <qresource prefix="/qgis_plugin_gpq_downloader">
+        <file>icons/download.svg</file>
     </qresource>
 </RCC>

@@ -1,9 +1,11 @@
 from qgis.PyQt.QtWidgets import QAction, QFileDialog, QMessageBox, QInputDialog
+from qgis.PyQt.QtGui import QIcon  # Import QIcon to set an icon for the action
 from qgis.core import QgsProject, QgsRectangle, QgsVectorLayer
 from PyQt5.QtCore import pyqtSignal, QObject
 import duckdb
 import os
 import threading
+import resources_rc
 
 class Worker(QObject):
     finished = pyqtSignal(str)
@@ -35,7 +37,7 @@ class Worker(QObject):
 
             # Format-specific options
             if self.output_file.endswith(".parquet"):
-                format_options = "(FORMAT 'parquet', COMPRESSION 'ZSTD');"
+                format_options = "(FORMAT 'parquet', COMPRESSION 'zstd');"
             elif self.output_file.endswith(".gpkg"):
                 format_options = "(FORMAT 'GPKG');"
             else:
@@ -63,13 +65,25 @@ class QgisPluginGeoParquet:
         self.action = None
 
     def initGui(self):
-        self.action = QAction("Download GeoParquet Data", self.iface.mainWindow())
+        # Create the action with the new icon and tooltip
+        self.action = QAction(QIcon(':/qgis_plugin_gpq_downloader/icons/download.svg'), "Download GeoParquet Data", self.iface.mainWindow())
+        self.action.setToolTip("Download GeoParquet Data")
         self.action.triggered.connect(self.run)
-        self.iface.addPluginToMenu("GeoParquet Plugin", self.action)
+        # Add the action to the toolbar
+        self.iface.addToolBarIcon(self.action)
+        # Optionally, add the action to a custom toolbar
+        # self.toolbar = self.iface.addToolBar("GeoParquet")
+        # self.toolbar.addAction(self.action)
+        # Remove the menu-related code
+        # self.iface.addPluginToMenu("GeoParquet Plugin", self.action)
 
     def unload(self):
-        self.iface.removePluginMenu("GeoParquet Plugin", self.action)
+        # Remove the action from the toolbar
         self.iface.removeToolBarIcon(self.action)
+        # Remove the custom toolbar if used
+        # del self.toolbar
+        # Remove the menu-related code
+        # self.iface.removePluginMenu("GeoParquet Plugin", self.action)
 
     def run(self):
         options = ["Overture Places", "Overture Roads"]
