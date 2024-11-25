@@ -1,0 +1,4 @@
+<RCC>
+    <qresource prefix="/qgis_plugin_gpq_downloader">
+    </qresource>
+</RCC>

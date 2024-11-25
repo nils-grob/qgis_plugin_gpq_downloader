@@ -1,0 +1,7 @@
+[general]
+name=qgis_plugin_gpq_downloader
+description=Download GeoParquet data using DuckDB based on the viewport
+version=0.1
+qgisMinimumVersion=3.16
+author=Chris Holmes
+email=chomie@gmail.com
