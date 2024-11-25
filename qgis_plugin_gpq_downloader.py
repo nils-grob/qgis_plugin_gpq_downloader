@@ -1,10 +1,9 @@
 from qgis.PyQt.QtWidgets import QAction, QFileDialog, QMessageBox, QInputDialog
-from qgis.core import QgsProject, QgsRectangle
+from qgis.core import QgsProject, QgsRectangle, QgsVectorLayer
+from PyQt5.QtCore import pyqtSignal, QObject
 import duckdb
-import requests
 import os
 import threading
-from PyQt5.QtCore import pyqtSignal, QObject
 
 class Worker(QObject):
     finished = pyqtSignal(str)
@@ -36,7 +35,7 @@ class Worker(QObject):
 
             # Format-specific options
             if self.output_file.endswith(".parquet"):
-                format_options = "(FORMAT 'parquet', COMPRESSION 'BROTLI');"
+                format_options = "(FORMAT 'parquet', COMPRESSION 'ZSTD');"
             elif self.output_file.endswith(".gpkg"):
                 format_options = "(FORMAT 'GPKG');"
             else:
@@ -51,7 +50,8 @@ class Worker(QObject):
             print(copy_query)
 
             conn.execute(copy_query)
-            self.finished.emit(f"Data saved to {self.output_file}.")
+            # Emit the output file path instead of a message
+            self.finished.emit(self.output_file)
         except Exception as e:
             self.error.emit(str(e))
         finally:
@@ -106,11 +106,24 @@ class QgisPluginGeoParquet:
         worker_thread = threading.Thread(target=worker.run)
 
         # Connect signals to slots
-        worker.finished.connect(lambda message: QMessageBox.information(self.iface.mainWindow(), "Success", message))
+        worker.finished.connect(self.on_finished)
         worker.error.connect(lambda message: QMessageBox.critical(self.iface.mainWindow(), "Error", message))
 
         # Start the worker thread
         worker_thread.start()
+
+    def on_finished(self, output_file):
+        # Load the output_file into QGIS
+        if output_file.endswith('.parquet') or output_file.endswith('.gpkg'):
+            # Create a new vector layer
+            layer = QgsVectorLayer(output_file, os.path.basename(output_file), "ogr")
+            if not layer.isValid():
+                QMessageBox.critical(self.iface.mainWindow(), "Error", "Failed to load the layer.")
+                return
+            # Add the layer to the QGIS project
+            QgsProject.instance().addMapLayer(layer)
+        else:
+            QMessageBox.critical(self.iface.mainWindow(), "Error", "Unsupported file format.")
 
 def classFactory(iface):
     return QgisPluginGeoParquet(iface)
