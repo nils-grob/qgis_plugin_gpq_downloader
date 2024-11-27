@@ -1,24 +1,35 @@
 from qgis.PyQt.QtWidgets import QAction, QFileDialog, QMessageBox, QInputDialog
 from qgis.PyQt.QtGui import QIcon  # Import QIcon to set an icon for the action
-from qgis.core import QgsProject, QgsRectangle, QgsVectorLayer
+from qgis.core import QgsProject, QgsRectangle, QgsVectorLayer, QgsCoordinateReferenceSystem, QgsCoordinateTransform
 from PyQt5.QtCore import pyqtSignal, QObject
 import duckdb
 import os
 import threading
 import resources_rc
+from pathlib import Path
 
 class Worker(QObject):
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, dataset_url, extent, output_file):
+    def __init__(self, dataset_url, extent, output_file, iface):
         super().__init__()
         self.dataset_url = dataset_url
         self.extent = extent
         self.output_file = output_file
+        self.iface = iface
 
     def run(self):
-        bbox = f"{self.extent.xMinimum()},{self.extent.yMinimum()},{self.extent.xMaximum()},{self.extent.yMaximum()}"
+        # Create source and destination CRS objects
+        source_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
+        dest_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+
+        # Create transform if needed
+        if source_crs != dest_crs:
+            transform = QgsCoordinateTransform(source_crs, dest_crs, QgsProject.instance())
+            bbox = transform.transformBoundingBox(self.extent)
+        else:
+            bbox = self.extent
 
         conn = duckdb.connect()
         try:
@@ -26,7 +37,7 @@ class Worker(QObject):
             conn.execute("INSTALL spatial;")
             conn.execute("LOAD spatial;")
 
-            select_query = "SELECT *";
+            select_query = "SELECT *"
             if not self.output_file.endswith(".parquet"):
 
                 # Get the schema of the dataset to identify column types
@@ -54,8 +65,8 @@ class Worker(QObject):
             base_query = f"""
             COPY (
                 {select_query} FROM read_parquet('{self.dataset_url}')
-                WHERE bbox.xmin BETWEEN {self.extent.xMinimum()} AND {self.extent.xMaximum()}
-                AND bbox.ymin BETWEEN {self.extent.yMinimum()} AND {self.extent.yMaximum()}
+                WHERE bbox.xmin BETWEEN {bbox.xMinimum()} AND {bbox.xMaximum()}
+                AND bbox.ymin BETWEEN {bbox.yMinimum()} AND {bbox.yMaximum()}
             ) TO '{self.output_file}' 
             """
 
@@ -87,6 +98,10 @@ class QgisPluginGeoParquet:
     def __init__(self, iface):
         self.iface = iface
         self.action = None
+        # Create a default downloads directory in user's home directory
+        self.download_dir = Path.home() / "Downloads" 
+        # Create the directory if it doesn't exist
+        self.download_dir.mkdir(parents=True, exist_ok=True)
 
     def initGui(self):
         # Create the action with the new icon and tooltip
@@ -130,8 +145,21 @@ class QgisPluginGeoParquet:
             QMessageBox.critical(self.iface.mainWindow(), "Error", "No extent found.")
             return
 
+        # Get the current canvas extent
+        extent = self.iface.mapCanvas().extent()
+        
+        # Generate a default filename with timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_filename = f"geoparquet_download_{timestamp}.parquet"
+        default_save_path = str(self.download_dir / default_filename)
+
+        # Show file dialog with GeoParquet as the default format
         output_file, _ = QFileDialog.getSaveFileName(
-            self.iface.mainWindow(), "Save As", "", "GeoParquet (*.parquet);;GeoPackage (*.gpkg)"
+            self.iface.mainWindow(),
+            "Save GeoParquet Data",
+            default_save_path,
+            "GeoParquet (*.parquet);;GeoPackage (*.gpkg)"  # Switched order to make GeoParquet the default
         )
 
         if not output_file:
@@ -140,7 +168,7 @@ class QgisPluginGeoParquet:
         self.download_and_save(dataset_url, extent, output_file)
 
     def download_and_save(self, dataset_url, extent: QgsRectangle, output_file: str):
-        worker = Worker(dataset_url, extent, output_file)
+        worker = Worker(dataset_url, extent, output_file, self.iface)
         worker_thread = threading.Thread(target=worker.run)
 
         # Connect signals to slots
