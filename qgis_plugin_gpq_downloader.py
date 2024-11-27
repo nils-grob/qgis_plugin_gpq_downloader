@@ -49,27 +49,45 @@ class Worker(QObject):
                               "Other GeoParquet formats are not yet supported.")
                 return
 
+            # bbox_col = next((row for row in schema_result if row[0].lower() == 'bbox'), None)
+            
+            # TODO: get this working right, maybe move location. 
+            #            has_valid_bbox = False
+            #            if bbox_col:
+            #                col_type = bbox_col[1].upper()
+            #                has_valid_bbox = (
+            #                    'STRUCT' in col_type and 
+            #                    all(field in col_type for field in ['XMIN', 'XMAX', 'YMIN', 'YMAX']) and
+            #                    all(field in col_type for field in ['FLOAT', 'DOUBLE'])
+            #                )
+            
+            #            if not has_valid_bbox:
+            #                QMessageBox.warning(self, "Validation Error",
+            #                    "This GeoParquet file does not have a properly formatted bbox column. " +
+            #                    "The bbox column must be a STRUCT with xmin, xmax, ymin, ymax fields of type float or double.")
+            #                return
+
             # TODO: Make this bounds check quicker, and move to validation# Quick bounds check
-            if (False):
-                bounds_query = f"""
-                SELECT MIN(bbox.xmin) as min_x, MAX(bbox.xmax) as max_x,
-                    MIN(bbox.ymin) as min_y, MAX(bbox.ymax) as max_y
-                FROM read_parquet('{self.dataset_url}')
-                """
-                bounds_result = conn.execute(bounds_query).fetchone()
+
+            bounds_query = f"""
+            SELECT MIN(bbox.xmin) as min_x, MAX(bbox.xmax) as max_x,
+                MIN(bbox.ymin) as min_y, MAX(bbox.ymax) as max_y
+            FROM read_parquet('{self.dataset_url}')
+            """
+            bounds_result = conn.execute(bounds_query).fetchone()
+            
+            if bounds_result and not self.killed:
+                min_x, max_x, min_y, max_y = bounds_result
+                request_bounds = (bbox.xMinimum(), bbox.xMaximum(), 
+                                bbox.yMinimum(), bbox.yMaximum())
                 
-                if bounds_result and not self.killed:
-                    min_x, max_x, min_y, max_y = bounds_result
-                    request_bounds = (bbox.xMinimum(), bbox.xMaximum(), 
-                                    bbox.yMinimum(), bbox.yMaximum())
-                    
-                    # Check for overlap
-                    if (max_x < request_bounds[0] or min_x > request_bounds[1] or
-                        max_y < request_bounds[2] or min_y > request_bounds[3]):
-                        self.error.emit("The current view extent does not overlap with the data. " +
-                                    f"\nData bounds: {min_x:.2f}, {min_y:.2f}, {max_x:.2f}, {max_y:.2f}" +
-                                    f"\nRequested bounds: {request_bounds[0]:.2f}, {request_bounds[2]:.2f}, {request_bounds[1]:.2f}, {request_bounds[3]:.2f}")
-                        return
+                # Check for overlap
+                if (max_x < request_bounds[0] or min_x > request_bounds[1] or
+                    max_y < request_bounds[2] or min_y > request_bounds[3]):
+                    self.error.emit("The current view extent does not overlap with the data. " +
+                                f"\nData bounds: {min_x:.2f}, {min_y:.2f}, {max_x:.2f}, {max_y:.2f}" +
+                                f"\nRequested bounds: {request_bounds[0]:.2f}, {request_bounds[2]:.2f}, {request_bounds[1]:.2f}, {request_bounds[3]:.2f}")
+                    return
 
             # Continue with regular query if bounds overlap
             select_query = "SELECT *"
@@ -156,6 +174,49 @@ class Worker(QObject):
     def kill(self):
         self.killed = True
 
+class ValidationWorker(QObject):
+    finished = pyqtSignal(bool, str)
+    progress = pyqtSignal(str)
+
+    def __init__(self, dataset_url):
+        super().__init__()
+        self.dataset_url = dataset_url
+        self.killed = False
+
+    def run(self):
+        try:
+            self.progress.emit("Connecting to data source...")
+            conn = duckdb.connect()
+            conn.execute("INSTALL spatial;")
+            conn.execute("LOAD spatial;")
+            
+            self.progress.emit("Checking data format...")
+            schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
+            schema_result = conn.execute(schema_query).fetchall()
+            has_bbox = any(row[0].lower() == 'bbox' for row in schema_result)
+            
+            if not has_bbox:
+                self.finished.emit(False, "This plugin currently only supports GeoParquet 1.1 files with a bbox column.")
+                return
+
+            self.progress.emit("Checking data bounds...")
+            bounds_query = f"""
+            SELECT MIN(bbox.xmin) as min_x, MAX(bbox.xmax) as max_x,
+                MIN(bbox.ymin) as min_y, MAX(bbox.ymax) as max_y
+            FROM read_parquet('{self.dataset_url}')
+            """
+            bounds_result = conn.execute(bounds_query).fetchone()
+            
+            if bounds_result:
+                self.finished.emit(True, "Validation successful")
+            else:
+                self.finished.emit(False, "Could not determine data bounds")
+
+        except Exception as e:
+            self.finished.emit(False, f"Error validating source: {str(e)}")
+        finally:
+            conn.close()
+
 class DataSourceDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -204,6 +265,10 @@ class DataSourceDialog(QDialog):
         # Initialize state
         self.preset_selected(0)
         
+        self.validation_worker = None
+        self.validation_thread = None
+        self.progress_message = None
+        
     def preset_selected(self, index):
         preset_url = self.preset_combo.currentData()
         if preset_url:  # If it's a preset
@@ -223,51 +288,69 @@ class DataSourceDialog(QDialog):
         if self.preset_combo.currentIndex() > 0:
             self.accept()
             return
-            
-        try:
-            conn = duckdb.connect()
-            conn.execute("INSTALL spatial;")
-            conn.execute("LOAD spatial;")
-            
-            # Try to read the schema
-            schema_query = f"DESCRIBE SELECT * FROM read_parquet('{url}')"
-            schema_result = conn.execute(schema_query).fetchall()
-            
-            # Check if it's spatial data with bbox
-            has_bbox = any(row[0].lower() == 'bbox' for row in schema_result)
-            
-            if not has_bbox:
-                QMessageBox.warning(self, "Validation Error", 
-                    "This plugin currently only supports GeoParquet with v1.1 bbox columns.")
-                return
 
-            bbox_col = next((row for row in schema_result if row[0].lower() == 'bbox'), None)
-            
-            # TODO: get this working right, maybe move location. 
-            #            has_valid_bbox = False
-            #            if bbox_col:
-            #                col_type = bbox_col[1].upper()
-            #                has_valid_bbox = (
-            #                    'STRUCT' in col_type and 
-            #                    all(field in col_type for field in ['XMIN', 'XMAX', 'YMIN', 'YMAX']) and
-            #                    all(field in col_type for field in ['FLOAT', 'DOUBLE'])
-            #                )
-            
-            #            if not has_valid_bbox:
-            #                QMessageBox.warning(self, "Validation Error",
-            #                    "This GeoParquet file does not have a properly formatted bbox column. " +
-            #                    "The bbox column must be a STRUCT with xmin, xmax, ymin, ymax fields of type float or double.")
-            #                return
+        # Create progress message
+        self.progress_message = QMessageBox(self)
+        self.progress_message.setIcon(QMessageBox.Information)
+        self.progress_message.setWindowTitle("Validating Data Source")
+        self.progress_message.setText("Starting validation...")
+        self.progress_message.setStandardButtons(QMessageBox.Cancel)
+        
+        # Setup validation worker
+        self.validation_worker = ValidationWorker(url)
+        self.validation_thread = QThread()
+        self.validation_worker.moveToThread(self.validation_thread)
+        
+        # Connect signals
+        self.validation_thread.started.connect(self.validation_worker.run)
+        self.validation_worker.progress.connect(self.update_progress)
+        self.validation_worker.finished.connect(self.handle_validation_result)
+        self.validation_worker.finished.connect(self.validation_thread.quit)
+        self.validation_thread.finished.connect(self.validation_thread.deleteLater)
+        self.validation_worker.finished.connect(self.validation_worker.deleteLater)
+        self.progress_message.buttonClicked.connect(self.cancel_validation)
+        
+        # Start validation
+        self.validation_thread.start()
+        self.progress_message.exec_()
 
+    def update_progress(self, message):
+        if self.progress_message:
+            self.progress_message.setText(message)
+
+    def handle_validation_result(self, success, message):
+        if self.progress_message:
+            self.progress_message.close()
+        
+        if success:
             self.accept()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Validation Error", f"Error validating source: {str(e)}")
-        finally:
-            conn.close()
-            
+        else:
+            QMessageBox.warning(self, "Validation Error", message)
+        
+        self.cleanup_validation()
+
+    def cancel_validation(self):
+        if self.validation_thread:
+            self.validation_thread.quit()
+            self.validation_thread.wait()
+            self.cleanup_validation()
+
+    def cleanup_validation(self):
+        if self.validation_thread and self.validation_thread.isRunning():
+            self.validation_thread.quit()
+            self.validation_thread.wait()
+        self.validation_thread = None
+        self.validation_worker = None
+        if self.progress_message:
+            self.progress_message = None
+
     def get_url(self):
         return self.url_input.text().strip()
+
+    def closeEvent(self, event):
+        # Add this method to handle dialog closing
+        self.cleanup_validation()
+        super().closeEvent(event)
 
 class QgisPluginGeoParquet:
     def __init__(self, iface):
