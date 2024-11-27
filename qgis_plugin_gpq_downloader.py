@@ -26,10 +26,34 @@ class Worker(QObject):
             conn.execute("INSTALL spatial;")
             conn.execute("LOAD spatial;")
 
+            select_query = "SELECT *";
+            if not self.output_file.endswith(".parquet"):
+
+                # Get the schema of the dataset to identify column types
+                schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
+                schema_result = conn.execute(schema_query).fetchall()
+
+                # Construct the SELECT clause with array conversion to strings
+                columns = []
+                for row in schema_result:
+                    col_name = row[0]
+                    col_type = row[1]
+                    
+                    
+                    if 'STRUCT' in col_type.upper() or 'MAP' in col_type.upper():
+                        columns.append(f"TO_JSON({col_name}) AS {col_name}")
+                    elif '[]' in col_type:  # Check for array types like VARCHAR[]
+                        columns.append(f"array_to_string({col_name}, ', ') AS {col_name}")
+                    else:
+                        columns.append(col_name)
+
+                   # When we support more than overture just select the primary name when it's o
+
+                    select_query = f"SELECT names.primary as name,{', '.join(columns)}"
             # Base query
             base_query = f"""
             COPY (
-                SELECT * FROM read_parquet('{self.dataset_url}')
+                {select_query} FROM read_parquet('{self.dataset_url}')
                 WHERE bbox.xmin BETWEEN {self.extent.xMinimum()} AND {self.extent.xMaximum()}
                 AND bbox.ymin BETWEEN {self.extent.yMinimum()} AND {self.extent.yMaximum()}
             ) TO '{self.output_file}' 
@@ -39,7 +63,7 @@ class Worker(QObject):
             if self.output_file.endswith(".parquet"):
                 format_options = "(FORMAT 'parquet', COMPRESSION 'zstd');"
             elif self.output_file.endswith(".gpkg"):
-                format_options = "(FORMAT 'GPKG');"
+                format_options = "(FORMAT GDAL, DRIVER 'GPKG');"
             else:
                 self.error.emit("Unsupported file format.")
                 return
