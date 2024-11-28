@@ -36,7 +36,6 @@ class Worker(QObject):
             conn.execute("LOAD spatial;")
 
             self.progress.emit("Preparing query...")
-            # Continue with regular query if bounds overlap
             select_query = "SELECT *"
             if not self.output_file.endswith(".parquet"):
 
@@ -136,12 +135,32 @@ class ValidationWorker(QObject):
         self.extent = extent
         self.killed = False
 
+    def needs_validation(self):
+        #TODO: Change this to be driven by a list that is easier to manage
+        # instead of having all this custom logic here.
+        """Determine if the dataset needs any validation"""
+        # VIDA Buildings doesn't need validation
+        if "vida/google-microsoft-osm-open-buildings" in self.dataset_url:
+            return False
+        # Overture datasets don't need validation
+        if "overturemaps-us-west-2" in self.dataset_url:
+            return False
+        # Source Cooperative datasets don't need validation
+        if "data.source.coop" in self.dataset_url:
+            return False
+        # All other datasets need validation
+        return True
+
     def run(self):
         try:
             self.progress.emit("Connecting to data source...")
             conn = duckdb.connect()
             conn.execute("INSTALL spatial;")
             conn.execute("LOAD spatial;")
+            
+            if not self.needs_validation():
+                self.finished.emit(True, "Validation successful")
+                return
             
             self.progress.emit("Checking data format...")
             schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
@@ -152,34 +171,31 @@ class ValidationWorker(QObject):
                 self.finished.emit(False, "This plugin currently only supports GeoParquet 1.1 files with a bbox column.")
                 return
 
-            self.progress.emit("Checking data bounds...")
-            source_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
-            bbox = transform_bbox_to_4326(self.extent, source_crs)
-
-            bounds_query = f"""
-            SELECT MIN(bbox.xmin) as min_x, MAX(bbox.xmax) as max_x,
-                MIN(bbox.ymin) as min_y, MAX(bbox.ymax) as max_y
-            FROM read_parquet('{self.dataset_url}')
-            """
-            bounds_result = conn.execute(bounds_query).fetchone()
-            
-            if bounds_result and not self.killed:
-                min_x, max_x, min_y, max_y = bounds_result
-                request_bounds = (bbox.xMinimum(), bbox.xMaximum(), 
-                                bbox.yMinimum(), bbox.yMaximum())
+            if (False): # TODO: See about checking this faster based on geoparquet metadata - it's too slow now.
+                self.progress.emit("Checking data bounds...")
+                bounds_query = f"""
+                SELECT MIN(bbox.xmin) as min_x, MAX(bbox.xmax) as max_x,
+                    MIN(bbox.ymin) as min_y, MAX(bbox.ymax) as max_y
+                FROM read_parquet('{self.dataset_url}')
+                """
+                bounds_result = conn.execute(bounds_query).fetchone()
                 
-                # Check for overlap
-                if (max_x < request_bounds[0] or min_x > request_bounds[1] or
-                    max_y < request_bounds[2] or min_y > request_bounds[3]):
-                    self.finished.emit(False, "The current view extent does not overlap with the data. " +
-                                f"\nData bounds: {min_x:.2f}, {min_y:.2f}, {max_x:.2f}, {max_y:.2f}" +
-                                f"\nRequested bounds: {request_bounds[0]:.2f}, {request_bounds[2]:.2f}, {request_bounds[1]:.2f}, {request_bounds[3]:.2f}")
-                    return
-            
-            if bounds_result:
-                self.finished.emit(True, "Validation successful")
-            else:
-                self.finished.emit(False, "Could not determine data bounds")
+                if bounds_result and not self.killed:
+                    min_x, max_x, min_y, max_y = bounds_result
+                    source_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
+                    bbox = transform_bbox_to_4326(self.extent, source_crs)
+                    request_bounds = (bbox.xMinimum(), bbox.xMaximum(), 
+                                    bbox.yMinimum(), bbox.yMaximum())
+                    
+                    # Check for overlap
+                    if (max_x < request_bounds[0] or min_x > request_bounds[1] or
+                        max_y < request_bounds[2] or min_y > request_bounds[3]):
+                        self.finished.emit(False, "The current view extent does not overlap with the data. " +
+                                    f"\nData bounds: {min_x:.2f}, {min_y:.2f}, {max_x:.2f}, {max_y:.2f}" +
+                                    f"\nRequested bounds: {request_bounds[0]:.2f}, {request_bounds[2]:.2f}, {request_bounds[1]:.2f}, {request_bounds[3]:.2f}")
+                        return
+                
+            self.finished.emit(True, "Validation successful")
 
         except Exception as e:
             self.finished.emit(False, f"Error validating source: {str(e)}")
@@ -190,6 +206,9 @@ class DataSourceDialog(QDialog):
     def __init__(self, parent=None, iface=None):
         super().__init__(parent)
         self.iface = iface
+        self.validation_thread = None
+        self.validation_worker = None
+        self.progress_message = None
         self.setWindowTitle("GeoParquet Data Source")
         self.setMinimumWidth(500)
         
@@ -331,12 +350,77 @@ class DataSourceDialog(QDialog):
         # For custom URLs, do some basic validation
         if self.custom_radio.isChecked():
             if not (url.startswith('http://') or url.startswith('https://') or 
-                   url.startswith('s3://')):
+                   url.startswith('s3://') or url.startswith('file://')):
                 QMessageBox.warning(self, "Validation Error", 
-                    "URL must start with http://, https://, or s3://.")
+                    "URL must start with http://, https://, s3://, or file://")
                 return
+
+        # Create progress message
+        self.progress_message = QMessageBox(self)
+        self.progress_message.setIcon(QMessageBox.Information)
+        self.progress_message.setWindowTitle("Validating Data Source")
+        self.progress_message.setText("Starting validation...")
+        self.progress_message.setStandardButtons(QMessageBox.Cancel)
         
-        self.accept()
+        # Get the current canvas extent
+        extent = self.iface.mapCanvas().extent()
+        
+        # Setup validation worker
+        self.validation_worker = ValidationWorker(url, self.iface, extent)
+        self.validation_thread = QThread()
+        self.validation_worker.moveToThread(self.validation_thread)
+        
+        # Connect signals
+        self.validation_thread.started.connect(self.validation_worker.run)
+        self.validation_worker.progress.connect(self.update_progress)
+        self.validation_worker.finished.connect(self.handle_validation_result)
+        self.validation_worker.finished.connect(lambda: self.cleanup_validation(True))
+        self.progress_message.buttonClicked.connect(lambda: self.cleanup_validation(False))
+        
+        # Start validation
+        self.validation_thread.start()
+        self.progress_message.exec_()
+
+    def handle_validation_result(self, success, message):
+        if self.progress_message:
+            self.progress_message.close()
+        
+        if success:
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Validation Error", message)
+
+    def update_progress(self, message):
+        if self.progress_message:
+            self.progress_message.setText(message)
+
+    def cleanup_validation(self, success):
+        """
+        Clean up the validation thread and worker
+        Args:
+            success (bool): Whether the cleanup is happening after successful validation
+        """
+        if self.validation_worker:
+            self.validation_worker.deleteLater()
+            self.validation_worker = None
+            
+        if self.validation_thread:
+            self.validation_thread.quit()
+            self.validation_thread.wait()
+            self.validation_thread.deleteLater()
+            self.validation_thread = None
+
+        if self.progress_message:
+            self.progress_message.close()
+            self.progress_message = None
+
+        if not success:
+            self.reject()
+
+    def closeEvent(self, event):
+        """Handle dialog closing"""
+        self.cleanup_validation(False)
+        super().closeEvent(event)
 
     def get_url(self):
         if self.custom_radio.isChecked():
