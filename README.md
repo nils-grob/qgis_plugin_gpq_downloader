@@ -10,6 +10,7 @@ Next steps:
 * Distribute as a QGIS plugin, figure out how dependencies work
  * settings panel to configure default download location, default download format, etc
  * Overture divisions - make sure it'll get one if it's fully contained in the area of a divison.
+ * Azure and GCP support (need to have a way to set credentials for duckdb)
  * Better handling if no features were found - right now it writes out an empty file - should alert user and not make the file.
  * overture - select multiple themes and then download each.
  * Panel for overture, source and add your own

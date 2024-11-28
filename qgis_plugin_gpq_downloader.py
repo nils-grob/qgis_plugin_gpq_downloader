@@ -196,17 +196,26 @@ class DataSourceDialog(QDialog):
         # Create main layout
         layout = QVBoxLayout()
         
+        # Create horizontal layout for radio buttons
+        radio_layout = QHBoxLayout()
+        
         # Create radio buttons
         self.custom_radio = QRadioButton("Custom URL")
         self.overture_radio = QRadioButton("Overture Maps")
         self.sourcecoop_radio = QRadioButton("Source Cooperative")
         self.other_radio = QRadioButton("Other Sources")
         
-        # Add radio buttons to layout
-        layout.addWidget(self.custom_radio)
-        layout.addWidget(self.overture_radio)
-        layout.addWidget(self.sourcecoop_radio)
-        layout.addWidget(self.other_radio)
+        # Add radio buttons to horizontal layout
+        radio_layout.addWidget(self.custom_radio)
+        radio_layout.addWidget(self.overture_radio)
+        radio_layout.addWidget(self.sourcecoop_radio)
+        radio_layout.addWidget(self.other_radio)
+        
+        # Add radio button layout to main layout
+        layout.addLayout(radio_layout)
+        
+        # Add some spacing between radio buttons and content
+        layout.addSpacing(10)
         
         # Create and setup the stacked widget for different options
         self.stack = QStackedWidget()
@@ -215,7 +224,7 @@ class DataSourceDialog(QDialog):
         custom_page = QWidget()
         custom_layout = QVBoxLayout()
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("Enter URL to Parquet file or folder (s3://, https://, or file://)")
+        self.url_input.setPlaceholderText("Enter URL to Parquet file or folder (s3:// or https://)")
         custom_layout.addWidget(self.url_input)
         custom_page.setLayout(custom_layout)
         
@@ -262,6 +271,7 @@ class DataSourceDialog(QDialog):
         sourcecoop_layout = QVBoxLayout()
         self.sourcecoop_combo = QComboBox()
         self.sourcecoop_combo.addItems([
+            "Planet EU Field Boundaries (2022)",
             "VIDA Buildings",
             "California Crop Mapping"
         ])
@@ -321,9 +331,9 @@ class DataSourceDialog(QDialog):
         # For custom URLs, do some basic validation
         if self.custom_radio.isChecked():
             if not (url.startswith('http://') or url.startswith('https://') or 
-                   url.startswith('s3://') or url.startswith('file://')):
+                   url.startswith('s3://')):
                 QMessageBox.warning(self, "Validation Error", 
-                    "URL must start with http://, https://, s3://, or file://")
+                    "URL must start with http://, https://, or s3://.")
                 return
         
         self.accept()
@@ -350,6 +360,8 @@ class DataSourceDialog(QDialog):
                 return "s3://vida/google-microsoft-osm-open-buildings/google-microsoft-osm-open-buildings/geoparquet/by_country_s2/country_iso=*/*"
             elif selection == "California Crop Mapping":
                 return "https://data.source.coop/fiboa/us-ca-scm/us_ca_scm.parquet"
+            elif selection == "Planet EU Field Boundaries (2022)":
+                return "https://data.source.coop/planet/eu-field-boundaries/field_boundaries.parquet"
         elif self.other_radio.isChecked():
             selection = self.other_combo.currentText()
             if selection == "Foursquare Places":
