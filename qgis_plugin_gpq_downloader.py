@@ -108,7 +108,8 @@ class Worker(QObject):
             file_extension = self.output_file.lower().split('.')[-1]
 
             if file_extension == 'duckdb':
-                # For DuckDB, we're done - the data is already in the database
+                # Commit the transaction to ensure the data is saved
+                conn.commit()
                 if not self.killed:
                     self.info.emit(
                         "Data has been successfully saved to DuckDB database.\n\n"
@@ -146,11 +147,11 @@ class Worker(QObject):
             if not self.killed:
                 self.error.emit(str(e))
         finally:
-            # Clean up temporary table
-            try:
-                conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-            except:
-                pass
+            if not self.output_file.lower().endswith('.duckdb'): # Clean up temporary table
+                try:
+                    conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+                except:
+                    pass
             conn.close()
 
     def kill(self):
