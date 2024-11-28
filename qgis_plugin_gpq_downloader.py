@@ -1,4 +1,4 @@
-from qgis.PyQt.QtWidgets import QAction, QFileDialog, QMessageBox, QInputDialog, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QProgressDialog
+from qgis.PyQt.QtWidgets import QAction, QFileDialog, QMessageBox, QInputDialog, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QProgressDialog, QRadioButton, QStackedWidget, QWidget
 from qgis.PyQt.QtGui import QIcon  # Import QIcon to set an icon for the action
 from qgis.core import QgsProject, QgsRectangle, QgsVectorLayer, QgsCoordinateReferenceSystem, QgsCoordinateTransform
 from PyQt5.QtCore import pyqtSignal, QObject, Qt, QThread
@@ -193,29 +193,98 @@ class DataSourceDialog(QDialog):
         self.setWindowTitle("GeoParquet Data Source")
         self.setMinimumWidth(500)
         
-        # Create layout
+        # Create main layout
         layout = QVBoxLayout()
         
-        # Preset URLs dropdown
-        preset_layout = QHBoxLayout()
-        preset_label = QLabel("Preset Sources:")
-        self.preset_combo = QComboBox()
-        self.preset_combo.addItem("Custom URL...", "")
-        self.preset_combo.addItem("Overture Places", "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=places/type=place/*")
-        self.preset_combo.addItem("Overture Roads", "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=transportation/type=segment/*")
-        self.preset_combo.addItem("Overture Buildings", "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=buildings/type=building/*")
-        preset_layout.addWidget(preset_label)
-        preset_layout.addWidget(self.preset_combo)
-        layout.addLayout(preset_layout)
+        # Create radio buttons
+        self.custom_radio = QRadioButton("Custom URL")
+        self.overture_radio = QRadioButton("Overture Maps")
+        self.sourcecoop_radio = QRadioButton("Source Cooperative")
+        self.other_radio = QRadioButton("Other Sources")
         
-        # URL input
-        url_layout = QHBoxLayout()
-        url_label = QLabel("Data URL:")
+        # Add radio buttons to layout
+        layout.addWidget(self.custom_radio)
+        layout.addWidget(self.overture_radio)
+        layout.addWidget(self.sourcecoop_radio)
+        layout.addWidget(self.other_radio)
+        
+        # Create and setup the stacked widget for different options
+        self.stack = QStackedWidget()
+        
+        # Custom URL page
+        custom_page = QWidget()
+        custom_layout = QVBoxLayout()
         self.url_input = QLineEdit()
         self.url_input.setPlaceholderText("Enter URL to Parquet file or folder (s3://, https://, or file://)")
-        url_layout.addWidget(url_label)
-        url_layout.addWidget(self.url_input)
-        layout.addLayout(url_layout)
+        custom_layout.addWidget(self.url_input)
+        custom_page.setLayout(custom_layout)
+        
+        # Overture Maps page
+        overture_page = QWidget()
+        overture_layout = QVBoxLayout()
+        self.overture_combo = QComboBox()
+        self.overture_combo.addItems([
+            "Places", 
+            "Buildings", 
+            "Transportation",
+            "Addresses",
+            "Divisions",
+            "Base"
+        ])
+        overture_layout.addWidget(self.overture_combo)
+        
+        # Add base subtype combo
+        self.base_subtype_widget = QWidget()
+        base_subtype_layout = QVBoxLayout()
+        base_subtype_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
+        self.base_subtype_label = QLabel("Base Layer Type:")
+        self.base_subtype_combo = QComboBox()
+        self.base_subtype_combo.addItems([
+            "infrastructure",
+            "land",
+            "land_cover",
+            "land_use",
+            "water"
+        ])
+        base_subtype_layout.addWidget(self.base_subtype_label)
+        base_subtype_layout.addWidget(self.base_subtype_combo)
+        self.base_subtype_widget.setLayout(base_subtype_layout)
+        self.base_subtype_widget.hide()  # Initially hidden
+        
+        overture_layout.addWidget(self.base_subtype_widget)
+        overture_page.setLayout(overture_layout)
+        
+        # Connect the overture combo change signal
+        self.overture_combo.currentTextChanged.connect(self.handle_overture_selection)
+        
+        # Source Cooperative page
+        sourcecoop_page = QWidget()
+        sourcecoop_layout = QVBoxLayout()
+        self.sourcecoop_combo = QComboBox()
+        self.sourcecoop_combo.addItems([
+            "VIDA Buildings",
+            "California Crop Mapping"
+        ])
+        sourcecoop_layout.addWidget(self.sourcecoop_combo)
+        sourcecoop_page.setLayout(sourcecoop_layout)
+        
+        # Other sources page
+        other_page = QWidget()
+        other_layout = QVBoxLayout()
+        self.other_combo = QComboBox()
+        self.other_combo.addItems([
+            "Foursquare Places"
+        ])
+        other_layout.addWidget(self.other_combo)
+        other_page.setLayout(other_layout)
+        
+        # Add pages to stack
+        self.stack.addWidget(custom_page)
+        self.stack.addWidget(overture_page)
+        self.stack.addWidget(sourcecoop_page)
+        self.stack.addWidget(other_page)
+        
+        layout.addWidget(self.stack)
         
         # Buttons
         button_layout = QHBoxLayout()
@@ -228,102 +297,64 @@ class DataSourceDialog(QDialog):
         self.setLayout(layout)
         
         # Connect signals
-        self.preset_combo.currentIndexChanged.connect(self.preset_selected)
+        self.custom_radio.toggled.connect(lambda: self.stack.setCurrentIndex(0))
+        self.overture_radio.toggled.connect(lambda: self.stack.setCurrentIndex(1))
+        self.sourcecoop_radio.toggled.connect(lambda: self.stack.setCurrentIndex(2))
+        self.other_radio.toggled.connect(lambda: self.stack.setCurrentIndex(3))
         self.ok_button.clicked.connect(self.validate_and_accept)
         self.cancel_button.clicked.connect(self.reject)
         
-        # Initialize state
-        self.preset_selected(0)
+        # Set initial state
+        self.custom_radio.setChecked(True)
         
-        self.validation_worker = None
-        self.validation_thread = None
-        self.progress_message = None
-        
-    def preset_selected(self, index):
-        preset_url = self.preset_combo.currentData()
-        if preset_url:  # If it's a preset
-            self.url_input.setText(preset_url)
-            self.url_input.setEnabled(False)
-        else:  # If it's "Custom URL..."
-            self.url_input.clear()
-            self.url_input.setEnabled(True)
-            
+    def handle_overture_selection(self, text):
+        """Show/hide base subtype combo based on selection"""
+        self.base_subtype_widget.setVisible(text == "Base")
+
     def validate_and_accept(self):
-        url = self.url_input.text().strip()
+        """Validate the input and accept the dialog if valid"""
+        url = self.get_url()
         if not url:
-            QMessageBox.warning(self, "Validation Error", "Please enter a URL")
+            QMessageBox.warning(self, "Validation Error", "Please enter a URL or select a dataset")
             return
-            
-        # Skip validation for preset URLs
-        if self.preset_combo.currentIndex() > 0:
-            self.accept()
-            return
-
-        # Get the current canvas extent
-        extent = self.iface.mapCanvas().extent()
-
-        # Create progress message
-        self.progress_message = QMessageBox(self)
-        self.progress_message.setIcon(QMessageBox.Information)
-        self.progress_message.setWindowTitle("Validating Data Source")
-        self.progress_message.setText("Starting validation...")
-        self.progress_message.setStandardButtons(QMessageBox.Cancel)
         
-        # Setup validation worker with extent
-        self.validation_worker = ValidationWorker(url, self.iface, extent)  # Pass extent here
-        self.validation_thread = QThread()
-        self.validation_worker.moveToThread(self.validation_thread)
+        # For custom URLs, do some basic validation
+        if self.custom_radio.isChecked():
+            if not (url.startswith('http://') or url.startswith('https://') or 
+                   url.startswith('s3://') or url.startswith('file://')):
+                QMessageBox.warning(self, "Validation Error", 
+                    "URL must start with http://, https://, s3://, or file://")
+                return
         
-        # Connect signals
-        self.validation_thread.started.connect(self.validation_worker.run)
-        self.validation_worker.progress.connect(self.update_progress)
-        self.validation_worker.finished.connect(self.handle_validation_result)
-        self.validation_worker.finished.connect(self.validation_thread.quit)
-        self.validation_thread.finished.connect(self.validation_thread.deleteLater)
-        self.validation_worker.finished.connect(self.validation_worker.deleteLater)
-        self.progress_message.buttonClicked.connect(self.cancel_validation)
-        
-        # Start validation
-        self.validation_thread.start()
-        self.progress_message.exec_()
-
-    def update_progress(self, message):
-        if self.progress_message:
-            self.progress_message.setText(message)
-
-    def handle_validation_result(self, success, message):
-        if self.progress_message:
-            self.progress_message.close()
-        
-        if success:
-            self.accept()
-        else:
-            QMessageBox.warning(self, "Validation Error", message)
-        
-        self.cleanup_validation()
-
-    def cancel_validation(self):
-        if self.validation_thread:
-            self.validation_thread.quit()
-            self.validation_thread.wait()
-            self.cleanup_validation()
-
-    def cleanup_validation(self):
-        if self.validation_thread and self.validation_thread.isRunning():
-            self.validation_thread.quit()
-            self.validation_thread.wait()
-        self.validation_thread = None
-        self.validation_worker = None
-        if self.progress_message:
-            self.progress_message = None
+        self.accept()
 
     def get_url(self):
-        return self.url_input.text().strip()
-
-    def closeEvent(self, event):
-        # Add this method to handle dialog closing
-        self.cleanup_validation()
-        super().closeEvent(event)
+        if self.custom_radio.isChecked():
+            return self.url_input.text().strip()
+        elif self.overture_radio.isChecked():
+            theme = self.overture_combo.currentText().lower()
+            if theme == "transportation":
+                type_str = "segment"
+            elif theme == "divisions":
+                type_str = "division_area"
+            elif theme == "addresses":
+                type_str = "*"
+            elif theme == "base":
+                type_str = self.base_subtype_combo.currentText()
+            else:
+                type_str = theme.rstrip('s')  # remove trailing 's' for singular form
+            return f"s3://overturemaps-us-west-2/release/2024-11-13.0/theme={theme}/type={type_str}/*"
+        elif self.sourcecoop_radio.isChecked():
+            selection = self.sourcecoop_combo.currentText()
+            if selection == "VIDA Buildings":
+                return "s3://vida/google-microsoft-osm-open-buildings/google-microsoft-osm-open-buildings/geoparquet/by_country_s2/country_iso=*/*"
+            elif selection == "California Crop Mapping":
+                return "https://data.source.coop/fiboa/us-ca-scm/us_ca_scm.parquet"
+        elif self.other_radio.isChecked():
+            selection = self.other_combo.currentText()
+            if selection == "Foursquare Places":
+                return "s3://foursquare-places/latest/*"
+        return ""
 
 class QgisPluginGeoParquet:
     def __init__(self, iface):
