@@ -13,7 +13,9 @@ class Worker(QObject):
     finished = pyqtSignal()
     error = pyqtSignal(str)
     load_layer = pyqtSignal(str)
+    info = pyqtSignal(str)
     progress = pyqtSignal(str)
+    percent = pyqtSignal(int)
 
     def __init__(self, dataset_url, extent, output_file, iface):
         super().__init__()
@@ -32,8 +34,16 @@ class Worker(QObject):
         try:
             # Install and load the spatial extension
             self.progress.emit("Loading spatial extension...")
+
+            if self.output_file.lower().endswith('.duckdb'):
+                conn = duckdb.connect(self.output_file)  # Connect directly to output file
+            else:
+                conn = duckdb.connect() 
+
             conn.execute("INSTALL spatial;")
             conn.execute("LOAD spatial;")
+
+            table_name = "download_data" # TODO: Better name, in line with user selected name
 
             self.progress.emit("Preparing query...")
             select_query = "SELECT *"
@@ -83,42 +93,64 @@ class Worker(QObject):
 
             # Base query
             base_query = f"""
-            COPY (
+            CREATE TABLE {table_name} AS (
                 {select_query} FROM read_parquet('{self.dataset_url}')
                 {where_clause}
-            ) TO '{self.output_file}' 
+            ) 
             """
+            print("Executing SQL query:")
+            print(base_query)
+            conn.execute(base_query)
+            
 
-            # Format-specific options
-            if self.output_file.endswith(".parquet"):
-                format_options = "(FORMAT 'parquet', COMPRESSION 'ZSTD');"
-            elif self.output_file.endswith(".gpkg"):
-                format_options = "(FORMAT GDAL, DRIVER 'GPKG');"
+            self.progress.emit("Processing data to requested format...")
+
+            file_extension = self.output_file.lower().split('.')[-1]
+
+            if file_extension == 'duckdb':
+                # For DuckDB, we're done - the data is already in the database
+                if not self.killed:
+                    self.info.emit(
+                        "Data has been successfully saved to DuckDB database.\n\n"
+                        "Note: QGIS does not currently support loading DuckDB files directly."
+                    )
             else:
-                self.error.emit("Unsupported file format.")
+                copy_query = f"COPY {table_name} TO '{self.output_file}'"
+
+                if file_extension == "parquet":
+                    format_options = "(FORMAT 'parquet', COMPRESSION 'ZSTD');"
+                elif self.output_file.endswith(".gpkg"):
+                    format_options = "(FORMAT GDAL, DRIVER 'GPKG');"
+                else:
+                    self.error.emit("Unsupported file format.")
+                
+                print("Executing SQL query:")
+                print(copy_query + format_options)
+                conn.execute(copy_query + format_options)
+
             
             if self.killed:
                 return
 
-            # Complete query
-            copy_query = base_query + format_options
-
-            # Print the SQL query
-            print("Executing SQL query:")
-            print(copy_query)
-
-            self.progress.emit("Downloading and processing data...")
-            conn.execute(copy_query)
-
             if not self.killed:
-                self.progress.emit("Loading layer into QGIS...")
-                self.load_layer.emit(self.output_file)
+                if self.output_file.lower().endswith('.duckdb'):
+                    self.info.emit(
+                        "Data has been successfully saved to DuckDB database.\n\n"
+                        "Note: QGIS does not currently support loading DuckDB files directly."
+                    )
+                else:
+                    self.load_layer.emit(self.output_file)
                 self.finished.emit()
 
         except Exception as e:
             if not self.killed:
                 self.error.emit(str(e))
         finally:
+            # Clean up temporary table
+            try:
+                conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+            except:
+                pass
             conn.close()
 
     def kill(self):
@@ -209,6 +241,7 @@ class DataSourceDialog(QDialog):
         self.validation_thread = None
         self.validation_worker = None
         self.progress_message = None
+        self.requires_validation = True
         self.setWindowTitle("GeoParquet Data Source")
         self.setMinimumWidth(500)
         
@@ -355,12 +388,17 @@ class DataSourceDialog(QDialog):
                     "URL must start with http://, https://, s3://, or file://")
                 return
 
-        # Create progress message
-        self.progress_message = QMessageBox(self)
-        self.progress_message.setIcon(QMessageBox.Information)
-        self.progress_message.setWindowTitle("Validating Data Source")
-        self.progress_message.setText("Starting validation...")
-        self.progress_message.setStandardButtons(QMessageBox.Cancel)
+        # Set requires_validation based on the selected dataset
+        self.requires_validation = True
+        if self.overture_radio.isChecked() or \
+           (self.sourcecoop_radio.isChecked() and "vida" in url.lower()):
+            self.requires_validation = False
+
+        # Create progress dialog
+        self.progress_dialog = QProgressDialog("Starting validation...", "Cancel", 0, 0, self)
+        self.progress_dialog.setWindowTitle("Validating Data Source")
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setMinimumDuration(0)
         
         # Get the current canvas extent
         extent = self.iface.mapCanvas().extent()
@@ -375,31 +413,26 @@ class DataSourceDialog(QDialog):
         self.validation_worker.progress.connect(self.update_progress)
         self.validation_worker.finished.connect(self.handle_validation_result)
         self.validation_worker.finished.connect(lambda: self.cleanup_validation(True))
-        self.progress_message.buttonClicked.connect(lambda: self.cleanup_validation(False))
+        self.progress_dialog.canceled.connect(lambda: self.cleanup_validation(False))
         
         # Start validation
         self.validation_thread.start()
-        self.progress_message.exec_()
+        self.progress_dialog.show()
+
+    def update_progress(self, message):
+        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+            self.progress_dialog.setLabelText(message)
 
     def handle_validation_result(self, success, message):
-        if self.progress_message:
-            self.progress_message.close()
+        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+            self.progress_dialog.close()
         
         if success:
             self.accept()
         else:
             QMessageBox.warning(self, "Validation Error", message)
 
-    def update_progress(self, message):
-        if self.progress_message:
-            self.progress_message.setText(message)
-
     def cleanup_validation(self, success):
-        """
-        Clean up the validation thread and worker
-        Args:
-            success (bool): Whether the cleanup is happening after successful validation
-        """
         if self.validation_worker:
             self.validation_worker.deleteLater()
             self.validation_worker = None
@@ -410,9 +443,9 @@ class DataSourceDialog(QDialog):
             self.validation_thread.deleteLater()
             self.validation_thread = None
 
-        if self.progress_message:
-            self.progress_message.close()
-            self.progress_message = None
+        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+            self.progress_dialog.close()
+            self.progress_dialog = None
 
         if not success:
             self.reject()
@@ -503,16 +536,28 @@ class QgisPluginGeoParquet:
         default_filename = f"geoparquet_download_{timestamp}.parquet"
         default_save_path = str(self.download_dir / default_filename)
         
-        # Show save file dialog
-        output_file, _ = QFileDialog.getSaveFileName(
+        # Show save file dialog with DuckDB option
+        output_file, selected_filter = QFileDialog.getSaveFileName(
             self.iface.mainWindow(),
-            "Save GeoParquet Data",
+            "Save Data",
             default_save_path,
-            "GeoParquet (*.parquet);;GeoPackage (*.gpkg)"
+            "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg)"  # Made DuckDB first option
         )
         
         if output_file:
-            self.download_and_save(dataset_url, extent, output_file)
+            # Add extension if not present
+            if not any(output_file.lower().endswith(ext) for ext in ['.duckdb', '.parquet', '.gpkg']):
+                if selected_filter == "DuckDB Database (*.duckdb)":
+                    output_file += '.duckdb'
+                elif selected_filter == "GeoParquet (*.parquet)":
+                    output_file += '.parquet'
+                elif selected_filter == "GeoPackage (*.gpkg)":
+                    output_file += '.gpkg'
+            
+            if dialog.requires_validation:
+                self.validate_and_download(dataset_url, extent, output_file)
+            else:
+                self.download_and_save(dataset_url, extent, output_file)
 
     def download_and_save(self, dataset_url, extent: QgsRectangle, output_file: str):
         # Clean up any existing worker/thread
@@ -537,8 +582,8 @@ class QgisPluginGeoParquet:
         self.worker_thread.started.connect(self.worker.run)
         self.worker.error.connect(self.handle_error)
         self.worker.load_layer.connect(self.load_layer)
+        self.worker.info.connect(self.show_info)
         self.worker.finished.connect(self.cleanup_thread)
-        self.worker.finished.connect(self.progress_dialog.close)
         self.worker.progress.connect(self.update_progress)
         self.progress_dialog.canceled.connect(self.cancel_download)
         
@@ -577,6 +622,10 @@ class QgisPluginGeoParquet:
             return
 
         QgsProject.instance().addMapLayer(layer)
+
+    def show_info(self, message):
+        """Show an information message to the user"""
+        QMessageBox.information(self.iface.mainWindow(), "Success", message)
 
 def classFactory(iface):
     return QgisPluginGeoParquet(iface)
