@@ -7,6 +7,7 @@ import os
 import threading
 import resources_rc
 from pathlib import Path
+from .utils import transform_bbox_to_4326
 
 class Worker(QObject):
     finished = pyqtSignal()
@@ -22,72 +23,14 @@ class Worker(QObject):
         self.killed = False
 
     def run(self):
-        # Create source and destination CRS objects
         source_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
-        dest_crs = QgsCoordinateReferenceSystem("EPSG:4326")
-
-        # Create transform if needed
-        if source_crs != dest_crs:
-            transform = QgsCoordinateTransform(source_crs, dest_crs, QgsProject.instance())
-            bbox = transform.transformBoundingBox(self.extent)
-        else:
-            bbox = self.extent
+        bbox = transform_bbox_to_4326(self.extent, source_crs)
 
         conn = duckdb.connect()
         try:
             # Install and load the spatial extension
             conn.execute("INSTALL spatial;")
             conn.execute("LOAD spatial;")
-
-            # Check if bbox column exists
-            schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
-            schema_result = conn.execute(schema_query).fetchall()
-            has_bbox = any(row[0].lower() == 'bbox' for row in schema_result)
-            
-            if not has_bbox:
-                self.error.emit("This plugin currently only supports GeoParquet 1.1 files with a bbox column. " +
-                              "Other GeoParquet formats are not yet supported.")
-                return
-
-            # bbox_col = next((row for row in schema_result if row[0].lower() == 'bbox'), None)
-            
-            # TODO: get this working right, maybe move location. 
-            #            has_valid_bbox = False
-            #            if bbox_col:
-            #                col_type = bbox_col[1].upper()
-            #                has_valid_bbox = (
-            #                    'STRUCT' in col_type and 
-            #                    all(field in col_type for field in ['XMIN', 'XMAX', 'YMIN', 'YMAX']) and
-            #                    all(field in col_type for field in ['FLOAT', 'DOUBLE'])
-            #                )
-            
-            #            if not has_valid_bbox:
-            #                QMessageBox.warning(self, "Validation Error",
-            #                    "This GeoParquet file does not have a properly formatted bbox column. " +
-            #                    "The bbox column must be a STRUCT with xmin, xmax, ymin, ymax fields of type float or double.")
-            #                return
-
-            # TODO: Make this bounds check quicker, and move to validation# Quick bounds check
-
-            bounds_query = f"""
-            SELECT MIN(bbox.xmin) as min_x, MAX(bbox.xmax) as max_x,
-                MIN(bbox.ymin) as min_y, MAX(bbox.ymax) as max_y
-            FROM read_parquet('{self.dataset_url}')
-            """
-            bounds_result = conn.execute(bounds_query).fetchone()
-            
-            if bounds_result and not self.killed:
-                min_x, max_x, min_y, max_y = bounds_result
-                request_bounds = (bbox.xMinimum(), bbox.xMaximum(), 
-                                bbox.yMinimum(), bbox.yMaximum())
-                
-                # Check for overlap
-                if (max_x < request_bounds[0] or min_x > request_bounds[1] or
-                    max_y < request_bounds[2] or min_y > request_bounds[3]):
-                    self.error.emit("The current view extent does not overlap with the data. " +
-                                f"\nData bounds: {min_x:.2f}, {min_y:.2f}, {max_x:.2f}, {max_y:.2f}" +
-                                f"\nRequested bounds: {request_bounds[0]:.2f}, {request_bounds[2]:.2f}, {request_bounds[1]:.2f}, {request_bounds[3]:.2f}")
-                    return
 
             # Continue with regular query if bounds overlap
             select_query = "SELECT *"
@@ -114,8 +57,9 @@ class Worker(QObject):
                    # When we support more than overture just select the primary name when it's o
 
                     select_query = f"SELECT names.primary as name,{', '.join(columns)}"
-            # Construct WHERE clause based on presence of bbox
-            if has_bbox:
+            # Construct WHERE clause based on presence of bbox (this code is not called now as validation ensures the bbox is there
+            # but leaving it here for now as we may want to support non-bbox / 1.0 queries in the future)
+            if (True): #has_bbox:
                 where_clause = f"""
                 WHERE bbox.xmin BETWEEN {bbox.xMinimum()} AND {bbox.xMaximum()}
                 AND bbox.ymin BETWEEN {bbox.yMinimum()} AND {bbox.yMaximum()}
@@ -178,9 +122,11 @@ class ValidationWorker(QObject):
     finished = pyqtSignal(bool, str)
     progress = pyqtSignal(str)
 
-    def __init__(self, dataset_url):
+    def __init__(self, dataset_url, iface, extent):
         super().__init__()
         self.dataset_url = dataset_url
+        self.iface = iface
+        self.extent = extent
         self.killed = False
 
     def run(self):
@@ -200,12 +146,28 @@ class ValidationWorker(QObject):
                 return
 
             self.progress.emit("Checking data bounds...")
+            source_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
+            bbox = transform_bbox_to_4326(self.extent, source_crs)
+
             bounds_query = f"""
             SELECT MIN(bbox.xmin) as min_x, MAX(bbox.xmax) as max_x,
                 MIN(bbox.ymin) as min_y, MAX(bbox.ymax) as max_y
             FROM read_parquet('{self.dataset_url}')
             """
             bounds_result = conn.execute(bounds_query).fetchone()
+            
+            if bounds_result and not self.killed:
+                min_x, max_x, min_y, max_y = bounds_result
+                request_bounds = (bbox.xMinimum(), bbox.xMaximum(), 
+                                bbox.yMinimum(), bbox.yMaximum())
+                
+                # Check for overlap
+                if (max_x < request_bounds[0] or min_x > request_bounds[1] or
+                    max_y < request_bounds[2] or min_y > request_bounds[3]):
+                    self.finished.emit(False, "The current view extent does not overlap with the data. " +
+                                f"\nData bounds: {min_x:.2f}, {min_y:.2f}, {max_x:.2f}, {max_y:.2f}" +
+                                f"\nRequested bounds: {request_bounds[0]:.2f}, {request_bounds[2]:.2f}, {request_bounds[1]:.2f}, {request_bounds[3]:.2f}")
+                    return
             
             if bounds_result:
                 self.finished.emit(True, "Validation successful")
@@ -218,8 +180,9 @@ class ValidationWorker(QObject):
             conn.close()
 
 class DataSourceDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, iface=None):
         super().__init__(parent)
+        self.iface = iface
         self.setWindowTitle("GeoParquet Data Source")
         self.setMinimumWidth(500)
         
@@ -289,6 +252,9 @@ class DataSourceDialog(QDialog):
             self.accept()
             return
 
+        # Get the current canvas extent
+        extent = self.iface.mapCanvas().extent()
+
         # Create progress message
         self.progress_message = QMessageBox(self)
         self.progress_message.setIcon(QMessageBox.Information)
@@ -296,8 +262,8 @@ class DataSourceDialog(QDialog):
         self.progress_message.setText("Starting validation...")
         self.progress_message.setStandardButtons(QMessageBox.Cancel)
         
-        # Setup validation worker
-        self.validation_worker = ValidationWorker(url)
+        # Setup validation worker with extent
+        self.validation_worker = ValidationWorker(url, self.iface, extent)  # Pass extent here
         self.validation_thread = QThread()
         self.validation_worker.moveToThread(self.validation_thread)
         
@@ -388,7 +354,7 @@ class QgisPluginGeoParquet:
 
     def run(self):
         # Show the data source dialog
-        dialog = DataSourceDialog(self.iface.mainWindow())
+        dialog = DataSourceDialog(self.iface.mainWindow(), self.iface)
         if dialog.exec_() != QDialog.Accepted:
             return
         
