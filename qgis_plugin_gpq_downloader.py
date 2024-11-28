@@ -1,4 +1,4 @@
-from qgis.PyQt.QtWidgets import QAction, QFileDialog, QMessageBox, QInputDialog, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox
+from qgis.PyQt.QtWidgets import QAction, QFileDialog, QMessageBox, QInputDialog, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QProgressDialog
 from qgis.PyQt.QtGui import QIcon  # Import QIcon to set an icon for the action
 from qgis.core import QgsProject, QgsRectangle, QgsVectorLayer, QgsCoordinateReferenceSystem, QgsCoordinateTransform
 from PyQt5.QtCore import pyqtSignal, QObject, Qt, QThread
@@ -13,6 +13,7 @@ class Worker(QObject):
     finished = pyqtSignal()
     error = pyqtSignal(str)
     load_layer = pyqtSignal(str)
+    progress = pyqtSignal(str)
 
     def __init__(self, dataset_url, extent, output_file, iface):
         super().__init__()
@@ -23,15 +24,18 @@ class Worker(QObject):
         self.killed = False
 
     def run(self):
+        self.progress.emit("Connecting to database...")
         source_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
         bbox = transform_bbox_to_4326(self.extent, source_crs)
 
         conn = duckdb.connect()
         try:
             # Install and load the spatial extension
+            self.progress.emit("Loading spatial extension...")
             conn.execute("INSTALL spatial;")
             conn.execute("LOAD spatial;")
 
+            self.progress.emit("Preparing query...")
             # Continue with regular query if bounds overlap
             select_query = "SELECT *"
             if not self.output_file.endswith(".parquet"):
@@ -103,9 +107,12 @@ class Worker(QObject):
             # Print the SQL query
             print("Executing SQL query:")
             print(copy_query)
+
+            self.progress.emit("Downloading and processing data...")
             conn.execute(copy_query)
 
             if not self.killed:
+                self.progress.emit("Loading layer into QGIS...")
                 self.load_layer.emit(self.output_file)
                 self.finished.emit()
 
@@ -385,6 +392,13 @@ class QgisPluginGeoParquet:
         if self.worker_thread is not None:
             self.cleanup_thread()
 
+        # Create progress dialog
+        self.progress_dialog = QProgressDialog("Starting download...", "Cancel", 0, 0, self.iface.mainWindow())
+        self.progress_dialog.setWindowTitle("Downloading Data")
+        self.progress_dialog.setWindowModality(Qt.NonModal)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.show()
+        
         # Create new worker and thread
         self.worker = Worker(dataset_url, extent, output_file, self.iface)
         self.worker_thread = QThread()
@@ -394,20 +408,39 @@ class QgisPluginGeoParquet:
         
         # Connect signals
         self.worker_thread.started.connect(self.worker.run)
-        self.worker.error.connect(lambda message: QMessageBox.critical(self.iface.mainWindow(), "Error", message))
+        self.worker.error.connect(self.handle_error)
         self.worker.load_layer.connect(self.load_layer)
         self.worker.finished.connect(self.cleanup_thread)
+        self.worker.finished.connect(self.progress_dialog.close)
+        self.worker.progress.connect(self.update_progress)
+        self.progress_dialog.canceled.connect(self.cancel_download)
         
         # Start the thread
         self.worker_thread.start()
 
+    def handle_error(self, message):
+        self.progress_dialog.close()
+        QMessageBox.critical(self.iface.mainWindow(), "Error", message)
+
+    def update_progress(self, message):
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.setLabelText(message)
+
+    def cancel_download(self):
+        if self.worker:
+            self.worker.kill()
+        self.cleanup_thread()
+
     def cleanup_thread(self):
         if self.worker_thread is not None:
-            self.worker.kill()
+            if self.worker:
+                self.worker.kill()
             self.worker_thread.quit()
             self.worker_thread.wait()
             self.worker_thread = None
             self.worker = None
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.close()
 
     def load_layer(self, output_file):
         """Load the layer into QGIS"""
