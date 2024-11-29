@@ -1,11 +1,17 @@
-from qgis.PyQt.QtWidgets import QAction, QFileDialog, QMessageBox, QInputDialog, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QProgressDialog, QRadioButton, QStackedWidget, QWidget
-from qgis.PyQt.QtGui import QIcon  # Import QIcon to set an icon for the action
-from qgis.core import QgsProject, QgsRectangle, QgsVectorLayer, QgsCoordinateReferenceSystem, QgsCoordinateTransform
-from PyQt5.QtCore import pyqtSignal, QObject, Qt, QThread
+from qgis.PyQt.QtWidgets import (
+    QAction, QFileDialog, QMessageBox, QDialog, 
+    QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
+    QPushButton, QComboBox, QProgressDialog, 
+    QRadioButton, QStackedWidget, QWidget
+)
+from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtCore import pyqtSignal, QObject, Qt, QThread
+from qgis.core import (
+    QgsProject, QgsRectangle, QgsVectorLayer, 
+    QgsCoordinateReferenceSystem, QgsCoordinateTransform
+)
 import duckdb
 import os
-import threading
-import resources_rc
 from pathlib import Path
 from .utils import transform_bbox_to_4326
 
@@ -642,7 +648,40 @@ class QgisPluginGeoParquet:
             self.progress_dialog.close()
 
     def load_layer(self, output_file):
-        """Load the layer into QGIS"""
+        """Load the layer into QGIS if GeoParquet is supported"""
+        if output_file.lower().endswith('.parquet'):
+            # Try to create a test layer to check GeoParquet support
+            test_layer = QgsVectorLayer(output_file, "test", "ogr")
+            if not test_layer.isValid():
+                dialog = QDialog(self.iface.mainWindow())
+                dialog.setWindowTitle("GeoParquet Support Not Available")
+                dialog.setMinimumWidth(400)
+                
+                layout = QVBoxLayout()
+                
+                message = QLabel(
+                    "Data has been successfully saved to GeoParquet file.\n\n"
+                    "Note: Your current QGIS installation does not support reading GeoParquet files directly.\n\n"
+                    "To view GeoParquet files in QGIS, you'll need to install QGIS with GDAL 3.8 "
+                    "or higher with 'libgdal-arrow-parquet'. You can find instructions at:"
+                )
+                message.setWordWrap(True)
+                layout.addWidget(message)
+                
+                link = QLabel()
+                link.setText('<a href="https://github.com/cholmes/qgis_plugin_gpq_downloader/Installing-GeoParquet-QGIS.md">Installing GeoParquet Support in QGIS</a>')
+                link.setOpenExternalLinks(True)
+                layout.addWidget(link)
+                
+                button_box = QPushButton("OK")
+                button_box.clicked.connect(dialog.accept)
+                layout.addWidget(button_box)
+                
+                dialog.setLayout(layout)
+                dialog.exec_()
+                return
+
+        # If we get here, either it's not a parquet file or GeoParquet is supported
         layer = QgsVectorLayer(output_file, "Downloaded Layer", "ogr")
         if not layer.isValid():
             QMessageBox.critical(self.iface.mainWindow(), "Error", "Failed to load the layer.")
