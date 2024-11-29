@@ -382,6 +382,9 @@ class DataSourceDialog(QDialog):
         # Set initial state
         self.custom_radio.setChecked(True)
         
+        # Add after setting up the sourcecoop_combo
+        self.update_sourcecoop_link(self.sourcecoop_combo.currentText())
+        
     def handle_overture_selection(self, text):
         """Show/hide base subtype combo based on selection"""
         self.base_subtype_widget.setVisible(text == "Base")
