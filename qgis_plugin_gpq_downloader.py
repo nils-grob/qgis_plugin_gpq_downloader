@@ -98,10 +98,16 @@ class Worker(QObject):
                 {where_clause}
             ) 
             """
+            self.progress.emit("Downloading data...")
             print("Executing SQL query:")
             print(base_query)
             conn.execute(base_query)
             
+            # Add check for empty results
+            row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+            if row_count == 0:
+                self.error.emit("No data found in the requested area. Check that your map extent overlaps with the data and/or expand your map extent.")
+                return
 
             self.progress.emit("Processing data to requested format...")
 
@@ -172,9 +178,6 @@ class ValidationWorker(QObject):
         #TODO: Change this to be driven by a list that is easier to manage
         # instead of having all this custom logic here.
         """Determine if the dataset needs any validation"""
-        # VIDA Buildings doesn't need validation
-        if "vida/google-microsoft-osm-open-buildings" in self.dataset_url:
-            return False
         # Overture datasets don't need validation
         if "overturemaps-us-west-2" in self.dataset_url:
             return False
@@ -325,10 +328,19 @@ class DataSourceDialog(QDialog):
         self.sourcecoop_combo = QComboBox()
         self.sourcecoop_combo.addItems([
             "Planet EU Field Boundaries (2022)",
-            "VIDA Buildings",
+            "USDA Crop Sequence Boundaries",
             "California Crop Mapping"
         ])
         sourcecoop_layout.addWidget(self.sourcecoop_combo)
+
+        # Add link label
+        self.sourcecoop_link = QLabel()
+        self.sourcecoop_link.setOpenExternalLinks(True)
+        self.sourcecoop_link.setWordWrap(True)
+        sourcecoop_layout.addWidget(self.sourcecoop_link)
+
+        # Connect combo box change to update link
+        self.sourcecoop_combo.currentTextChanged.connect(self.update_sourcecoop_link)
         sourcecoop_page.setLayout(sourcecoop_layout)
         
         # Other sources page
@@ -392,7 +404,7 @@ class DataSourceDialog(QDialog):
         # Set requires_validation based on the selected dataset
         self.requires_validation = True
         if self.overture_radio.isChecked() or \
-           (self.sourcecoop_radio.isChecked() and "vida" in url.lower()):
+           (self.sourcecoop_radio.isChecked()):
             self.requires_validation = False
 
         # Create progress dialog
@@ -474,8 +486,8 @@ class DataSourceDialog(QDialog):
             return f"s3://overturemaps-us-west-2/release/2024-11-13.0/theme={theme}/type={type_str}/*"
         elif self.sourcecoop_radio.isChecked():
             selection = self.sourcecoop_combo.currentText()
-            if selection == "VIDA Buildings":
-                return "s3://vida/google-microsoft-osm-open-buildings/google-microsoft-osm-open-buildings/geoparquet/by_country_s2/country_iso=*/*"
+            if selection == "USDA Crop Sequence Boundaries":
+                return "https://source.coop/fiboa/us-usda-cropland/us_usda_cropland.parquet"
             elif selection == "California Crop Mapping":
                 return "https://data.source.coop/fiboa/us-ca-scm/us_ca_scm.parquet"
             elif selection == "Planet EU Field Boundaries (2022)":
@@ -483,8 +495,21 @@ class DataSourceDialog(QDialog):
         elif self.other_radio.isChecked():
             selection = self.other_combo.currentText()
             if selection == "Foursquare Places":
-                return "s3://foursquare-places/latest/*"
+                QMessageBox.warning(self, "Not Implemented", 
+                    "Foursquare Places integration is not yet implemented. Please select another data source.")
+                return ""
         return ""
+
+    def update_sourcecoop_link(self, selection):
+        """Update the link based on the selected dataset"""
+        if selection == "Planet EU Field Boundaries (2022)":
+            self.sourcecoop_link.setText('<a href="https://source.coop/repositories/planet/eu-field-boundaries/description">View dataset description</a>')
+        elif selection == "USDA Crop Sequence Boundaries":
+            self.sourcecoop_link.setText('<a href="https://source.coop/fiboa/us-usda-cropland/description">View dataset description</a>')
+        elif selection == "California Crop Mapping":
+            self.sourcecoop_link.setText('<a href="https://source.coop/repositories/fiboa/us-ca-scm/description">View dataset description</a>')
+        else:
+            self.sourcecoop_link.setText('')
 
 class QgisPluginGeoParquet:
     def __init__(self, iface):
@@ -542,7 +567,7 @@ class QgisPluginGeoParquet:
             self.iface.mainWindow(),
             "Save Data",
             default_save_path,
-            "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg)"  # Made DuckDB first option
+            "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg)"
         )
         
         if output_file:
@@ -555,10 +580,8 @@ class QgisPluginGeoParquet:
                 elif selected_filter == "GeoPackage (*.gpkg)":
                     output_file += '.gpkg'
             
-            if dialog.requires_validation:
-                self.validate_and_download(dataset_url, extent, output_file)
-            else:
-                self.download_and_save(dataset_url, extent, output_file)
+            # Remove the validation check since it's already done in DataSourceDialog
+            self.download_and_save(dataset_url, extent, output_file)
 
     def download_and_save(self, dataset_url, extent: QgsRectangle, output_file: str):
         # Clean up any existing worker/thread

@@ -11,12 +11,11 @@ Next steps:
  * settings panel to configure default download location, default download format, etc
  * Overture divisions - make sure it'll get one if it's fully contained in the area of a divison.
  * Azure and GCP support (need to have a way to set credentials for duckdb)
- * Better handling if no features were found - right now it writes out an empty file - should alert user and not make the file.
  * overture - select multiple themes and then download each.
  * Panel for overture, source and add your own
  * Customize which release of overture to use
  * Better way to organize what data goes in each area. To start just define it all in one place, with what validation it could use. Eventually investigate things like building the area of interest into it for faster bounds checks, and auto-populating it based on source coop / overture releases.
- * Default file names based on file names / themes
+ * Better default file names based on file names / themes
  * And better selection of area to download
  * Add other output formats
  * More accurate progress bar? Seems like duckdb may be able to emit percentages, but they don't seem to be that accurate. Could do a two step process of downloading and then writing format.
