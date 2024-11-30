@@ -14,6 +14,7 @@ import duckdb
 import os
 from pathlib import Path
 from .utils import transform_bbox_to_4326
+from . import resources_rc
 
 class Worker(QObject):
     finished = pyqtSignal()
@@ -335,7 +336,8 @@ class DataSourceDialog(QDialog):
         self.sourcecoop_combo.addItems([
             "Planet EU Field Boundaries (2022)",
             "USDA Crop Sequence Boundaries",
-            "California Crop Mapping"
+            "California Crop Mapping",
+            "VIDA Google/Microsoft/OSM Buildings"
         ])
         sourcecoop_layout.addWidget(self.sourcecoop_combo)
 
@@ -501,6 +503,8 @@ class DataSourceDialog(QDialog):
                 return "https://data.source.coop/fiboa/us-ca-scm/us_ca_scm.parquet"
             elif selection == "Planet EU Field Boundaries (2022)":
                 return "https://data.source.coop/planet/eu-field-boundaries/field_boundaries.parquet"
+            elif selection == "VIDA Google/Microsoft/OSM Buildings":
+                return "s3://us-west-2.opendata.source.coop/vida/google-microsoft-osm-open-buildings/geoparquet/by_country/*/*.parquet"
         elif self.other_radio.isChecked():
             selection = self.other_combo.currentText()
             if selection == "Foursquare Places":
@@ -517,6 +521,8 @@ class DataSourceDialog(QDialog):
             self.sourcecoop_link.setText('<a href="https://source.coop/fiboa/us-usda-cropland/description">View dataset description</a>')
         elif selection == "California Crop Mapping":
             self.sourcecoop_link.setText('<a href="https://source.coop/repositories/fiboa/us-ca-scm/description">View dataset description</a>')
+        elif selection == "VIDA Google/Microsoft/OSM Buildings":
+            self.sourcecoop_link.setText('<a href="https://source.coop/repositories/vida/google-microsoft-osm-open-buildings/description">View dataset description</a>')
         else:
             self.sourcecoop_link.setText('')
 
@@ -532,31 +538,59 @@ class QgisPluginGeoParquet:
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
     def initGui(self):
-        # Create the action with the new icon and tooltip
-        self.action = QAction(QIcon(':/qgis_plugin_gpq_downloader/icons/download.svg'), "Download GeoParquet Data", self.iface.mainWindow())
+        # Create the action with the icon and tooltip
+        icon_path = ':/qgis_plugin_gpq_downloader/icons/download.svg'
+        self.action = QAction(
+            QIcon(icon_path),
+            "Download GeoParquet Data", 
+            self.iface.mainWindow()
+        )
         self.action.setToolTip("Download GeoParquet Data")
         self.action.triggered.connect(self.run)
-        # Add the action to the toolbar
+
+        # Create the Overture action
+        overture_icon_path = ':/qgis_plugin_gpq_downloader/icons/overture-logo.svg'
+        self.overture_action = QAction(
+            QIcon(overture_icon_path),
+            "Download Overture Data", 
+            self.iface.mainWindow()
+        )
+        self.overture_action.setToolTip("Download Overture Maps Data")
+        self.overture_action.triggered.connect(lambda: self.run(default_source='overture'))
+
+        # Create the Source Cooperative action
+        sourcecoop_icon_path = ':/qgis_plugin_gpq_downloader/icons/source-coop.svg'
+        self.sourcecoop_action = QAction(
+            QIcon(sourcecoop_icon_path),
+            "Download Source Cooperative Data", 
+            self.iface.mainWindow()
+        )
+        self.sourcecoop_action.setToolTip("Download Source Cooperative Data")
+        self.sourcecoop_action.triggered.connect(lambda: self.run(default_source='sourcecoop'))
+
+        # Add the actions to the toolbar
         self.iface.addToolBarIcon(self.action)
-        # Optionally, add the action to a custom toolbar
-        # self.toolbar = self.iface.addToolBar("GeoParquet")
-        # self.toolbar.addAction(self.action)
-        # Remove the menu-related code
-        # self.iface.addPluginToMenu("GeoParquet Plugin", self.action)
+        self.iface.addToolBarIcon(self.overture_action)
+        self.iface.addToolBarIcon(self.sourcecoop_action)
 
     def unload(self):
         # Clean up worker and thread when plugin is unloaded
         self.cleanup_thread()
-        # Remove the action from the toolbar
+        # Remove all actions from the toolbar
         self.iface.removeToolBarIcon(self.action)
-        # Remove the custom toolbar if used
-        # del self.toolbar
-        # Remove the menu-related code
-        # self.iface.removePluginMenu("GeoParquet Plugin", self.action)
+        self.iface.removeToolBarIcon(self.overture_action)
+        self.iface.removeToolBarIcon(self.sourcecoop_action)
 
-    def run(self):
+    def run(self, default_source=None):
         # Show the data source dialog
         dialog = DataSourceDialog(self.iface.mainWindow(), self.iface)
+        
+        # Set the default radio button based on the source
+        if default_source == 'overture':
+            dialog.overture_radio.setChecked(True)
+        elif default_source == 'sourcecoop':
+            dialog.sourcecoop_radio.setChecked(True)
+        
         if dialog.exec_() != QDialog.Accepted:
             return
         

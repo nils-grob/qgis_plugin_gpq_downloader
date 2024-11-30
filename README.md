@@ -11,11 +11,12 @@ Next steps:
  * settings panel to configure default download location, default download format, etc
  * Overture divisions - make sure it'll get one if it's fully contained in the area of a divison.
  * Azure and GCP support (need to have a way to set credentials for duckdb)
- * overture - select multiple themes and then download each.
+ * overture - be able to select multiple themes with check and then download each.
  * Panel for overture, source and add your own
  * Customize which release of overture to use
  * Better way to organize what data goes in each area. To start just define it all in one place, with what validation it could use. Eventually investigate things like building the area of interest into it for faster bounds checks, and auto-populating it based on source coop / overture releases.
  * Better default file names based on file names / themes
+ * Make use of admin-partitioned files like vida by figuring out the admin boundaries to request to speed up the download. I think I did this in the open buildings code (though that might have just been user supplied).
  * And better selection of area to download
  * Add other output formats
  * More accurate progress bar? Seems like duckdb may be able to emit percentages, but they don't seem to be that accurate. Could do a two step process of downloading and then writing format.
