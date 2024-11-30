@@ -703,7 +703,7 @@ class QgisPluginGeoParquet:
                 layout.addWidget(message)
                 
                 link = QLabel()
-                link.setText('<a href="https://github.com/cholmes/qgis_plugin_gpq_downloader/Installing-GeoParquet-QGIS.md">Installing GeoParquet Support in QGIS</a>')
+                link.setText('<a href="https://github.com/cholmes/qgis_plugin_gpq_downloader/wiki/Installing-GeoParquet-Support-in-QGIS">Installing GeoParquet Support in QGIS</a>')
                 link.setOpenExternalLinks(True)
                 layout.addWidget(link)
                 
