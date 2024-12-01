@@ -1,6 +1,7 @@
 [general]
-name=qgis_plugin_gpq_downloader
-description=Download GeoParquet data using DuckDB based on the viewport
+name=GeoParquet Downloader (Overture, Source & Custom Cloud)
+description=This plugin will connect to cloud-based GeoParquet data and download the portion of it that's in the current viewport.
+    It uses DuckDB under the hood.
 version=0.1
 qgisMinimumVersion=3.16
 author=Chris Holmes

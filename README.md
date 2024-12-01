@@ -7,11 +7,7 @@ This is a work in progress - but it seems to be working to download from places 
 Next steps:
 
 * Distribute as a QGIS plugin, figure out how dependencies work
- * Support geoparquet's that don't have the bbox column
- * overture - be able to select multiple themes with check and then download each.
  * Better way to organize what data goes in each area. To start just define it all in one place, with what validation it could use. Eventually investigate things like building the area of interest into it for faster bounds checks, and auto-populating it based on source coop / overture releases.
- * Better default file names based on file names / themes
- * support azure / gcp. 
  * Make use of admin-partitioned files like vida by figuring out the admin boundaries to request to speed up the download. I think I did this in the open buildings code (though that might have just been user supplied).
  * And better selection of area to download
  * Add other output formats

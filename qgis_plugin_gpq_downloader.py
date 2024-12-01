@@ -18,12 +18,6 @@ from . import resources_rc
 
 PRESET_DATASETS = {
     "overture": {
-        "base": {
-            "url_template": "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=base/type={subtype}/*",
-            "info_url": "https://docs.overturemaps.org/reference/base",
-            "needs_validation": False,
-            "subtypes": ["infrastructure", "land", "land_cover", "land_use", "water"]
-        },
         "buildings": {
             "url_template": "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=buildings/type=building/*",
             "info_url": "https://docs.overturemaps.org/reference/buildings",
@@ -43,6 +37,12 @@ PRESET_DATASETS = {
             "url_template": "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=addresses/type=*/*",
             "info_url": "https://docs.overturemaps.org/reference/addresses",
             "needs_validation": False
+        },
+        "base": {
+            "url_template": "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=base/type={subtype}/*",
+            "info_url": "https://docs.overturemaps.org/reference/base",
+            "needs_validation": False,
+            "subtypes": ["infrastructure", "land", "land_cover", "land_use", "water"]
         },
         "divisions": {
             "url_template": "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=divisions/type=division_area/*",
@@ -238,6 +238,7 @@ class Worker(QObject):
 class ValidationWorker(QObject):
     finished = pyqtSignal(bool, str, dict)
     progress = pyqtSignal(str)
+    needs_bbox_warning = pyqtSignal()
 
     def __init__(self, dataset_url, iface, extent):
         super().__init__()
@@ -285,8 +286,8 @@ class ValidationWorker(QObject):
                                                for row in schema_result)
             
             if not validation_results['has_bbox']:
-                self.finished.emit(False, "This plugin currently only supports GeoParquet 1.1 files with a bbox column.", 
-                                 validation_results)
+                # Emit signal for main thread to show warning
+                self.needs_bbox_warning.emit()
                 return
 
             self.finished.emit(True, "Validation successful", validation_results)
@@ -297,6 +298,8 @@ class ValidationWorker(QObject):
             conn.close()
 
 class DataSourceDialog(QDialog):
+    validation_complete = pyqtSignal(bool, str, dict)
+    
     def __init__(self, parent=None, iface=None):
         super().__init__(parent)
         self.iface = iface
@@ -480,6 +483,7 @@ class DataSourceDialog(QDialog):
         # Connect signals
         self.validation_thread.started.connect(self.validation_worker.run)
         self.validation_worker.progress.connect(self.update_progress)
+        self.validation_worker.needs_bbox_warning.connect(self.show_bbox_warning)
         self.validation_worker.finished.connect(self.handle_validation_result)
         self.validation_worker.finished.connect(lambda: self.cleanup_validation(True))
         self.progress_dialog.canceled.connect(lambda: self.cleanup_validation(False))
@@ -492,14 +496,14 @@ class DataSourceDialog(QDialog):
         if hasattr(self, 'progress_dialog') and self.progress_dialog:
             self.progress_dialog.setLabelText(message)
 
-    def handle_validation_result(self, success, message):
-        if hasattr(self, 'progress_dialog') and self.progress_dialog:
-            self.progress_dialog.close()
-        
+    def handle_validation_result(self, success, message, validation_results):
+        """Handle validation result in the dialog"""
         if success:
+            self.validation_complete.emit(True, message, validation_results)
             self.accept()
         else:
             QMessageBox.warning(self, "Validation Error", message)
+            self.validation_complete.emit(False, message, validation_results)
 
     def cleanup_validation(self, success):
         if self.validation_worker:
@@ -567,12 +571,36 @@ class DataSourceDialog(QDialog):
         else:
             self.sourcecoop_link.setText('')
 
+    def show_bbox_warning(self):
+        """Show bbox warning dialog in main thread"""
+        # Close the progress dialog if it exists
+        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+            self.progress_dialog.close()
+            self.progress_dialog = None
+            
+        reply = QMessageBox.warning(
+            self,
+            "No bbox Column Detected",
+            "This dataset doesn't have a bbox column, which means downloads will be slower. "
+            "GeoParquet 1.1 files with a bbox column work much better - tell your data provider to upgrade!\n\n"
+            "Do you want to continue with the download?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        validation_results = {'has_bbox': False, 'schema': None}
+        if reply == QMessageBox.No:
+            self.validation_complete.emit(False, "Download cancelled by user.", validation_results)
+        else:
+            self.validation_complete.emit(True, "Validation successful", validation_results)
+
 class QgisPluginGeoParquet:
     def __init__(self, iface):
         self.iface = iface
         self.worker = None
         self.worker_thread = None
         self.action = None
+        self.output_file = None
         # Create a default downloads directory in user's home directory
         self.download_dir = Path.home() / "Downloads" 
         # Create the directory if it doesn't exist
@@ -623,72 +651,45 @@ class QgisPluginGeoParquet:
         self.iface.removeToolBarIcon(self.sourcecoop_action)
 
     def run(self, default_source=None):
-        # Show the data source dialog
         dialog = DataSourceDialog(self.iface.mainWindow(), self.iface)
         
-        # Set the default radio button based on the source
         if default_source == 'overture':
             dialog.overture_radio.setChecked(True)
         elif default_source == 'sourcecoop':
             dialog.sourcecoop_radio.setChecked(True)
         
-        if dialog.exec_() != QDialog.Accepted:
-            return
-        
-        dataset_url = dialog.get_url()
-        extent = self.iface.mapCanvas().extent()
-        
-        # Generate default filename
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_filename = f"geoparquet_download_{timestamp}.parquet"
-        default_save_path = str(self.download_dir / default_filename)
-        
-        # Show save file dialog with DuckDB option
-        output_file, selected_filter = QFileDialog.getSaveFileName(
-            self.iface.mainWindow(),
-            "Save Data",
-            default_save_path,
-            "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg)"
+        # Connect validation complete signal to handle the result
+        dialog.validation_complete.connect(
+            lambda success, message, results: self.handle_validation_complete(
+                success, message, results, dialog.get_url(), self.iface.mapCanvas().extent()
+            )
         )
         
-        if output_file:
-            # Add extension if not present
-            if not any(output_file.lower().endswith(ext) for ext in ['.duckdb', '.parquet', '.gpkg']):
-                if selected_filter == "DuckDB Database (*.duckdb)":
-                    output_file += '.duckdb'
-                elif selected_filter == "GeoParquet (*.parquet)":
-                    output_file += '.parquet'
-                elif selected_filter == "GeoPackage (*.gpkg)":
-                    output_file += '.gpkg'
+        if dialog.exec_() != QDialog.Accepted:
+            return
 
-            self.validation_worker = ValidationWorker(dataset_url, self.iface, extent)
-            self.validation_thread = QThread()
-            self.validation_worker.moveToThread(self.validation_thread)
+    def handle_validation_complete(self, success, message, validation_results, dataset_url, extent):
+        """Handle validation completion and start download if successful"""
+        if success:
+            # Generate default filename
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_filename = f"geoparquet_download_{timestamp}.parquet"
+            default_save_path = str(self.download_dir / default_filename)
             
-            # Connect signals
-            self.validation_thread.started.connect(self.validation_worker.run)
-            self.validation_worker.progress.connect(self.update_progress)
-            self.validation_worker.finished.connect(
-                lambda success, message, results: self.handle_validation_result(
-                    success, message, results, dataset_url, extent, output_file
-                )
+            # Show save file dialog
+            output_file, selected_filter = QFileDialog.getSaveFileName(
+                self.iface.mainWindow(),
+                "Save Data",
+                default_save_path,
+                "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg)"
             )
             
-            self.validation_thread.start()
-
-    def handle_validation_result(self, success, message, validation_results, dataset_url, extent, output_file):
-        if success:
-            # Pass validation results to the worker
-            self.download_and_save(dataset_url, extent, output_file, validation_results)
+            if output_file:
+                self.output_file = output_file
+                self.download_and_save(dataset_url, extent, output_file, validation_results)
         else:
             QMessageBox.warning(self.iface.mainWindow(), "Validation Error", message)
-        
-        # Cleanup validation thread
-        self.validation_thread.quit()
-        self.validation_thread.wait()
-        self.validation_worker = None
-        self.validation_thread = None
 
     def download_and_save(self, dataset_url, extent, output_file, validation_results):
         # Create progress dialog
