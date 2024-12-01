@@ -16,6 +16,68 @@ from pathlib import Path
 from .utils import transform_bbox_to_4326
 from . import resources_rc
 
+PRESET_DATASETS = {
+    "overture": {
+        "base": {
+            "url_template": "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=base/type={subtype}/*",
+            "info_url": "https://docs.overturemaps.org/reference/base",
+            "needs_validation": False,
+            "subtypes": ["infrastructure", "land", "land_cover", "land_use", "water"]
+        },
+        "buildings": {
+            "url_template": "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=buildings/type=building/*",
+            "info_url": "https://docs.overturemaps.org/reference/buildings",
+            "needs_validation": False
+        },
+        "places": {
+            "url_template": "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=places/type=place/*",
+            "info_url": "https://docs.overturemaps.org/reference/places",
+            "needs_validation": False
+        },
+        "transportation": {
+            "url_template": "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=transportation/type=segment/*",
+            "info_url": "https://docs.overturemaps.org/reference/transportation",
+            "needs_validation": False
+        },
+        "addresses": {
+            "url_template": "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=addresses/type=*/*",
+            "info_url": "https://docs.overturemaps.org/reference/addresses",
+            "needs_validation": False
+        },
+        "divisions": {
+            "url_template": "s3://overturemaps-us-west-2/release/2024-11-13.0/theme=divisions/type=division_area/*",
+            "info_url": "https://docs.overturemaps.org/reference/administrative",
+            "needs_validation": False
+        }
+    },
+    "source_cooperative": {
+        "planet_eu_boundaries": {
+            "url": "https://data.source.coop/planet/eu-field-boundaries/field_boundaries.parquet",
+            "info_url": "https://source.coop/repositories/planet/eu-field-boundaries/description",
+            "needs_validation": False,
+            "display_name": "Planet EU Field Boundaries (2022)"
+        },
+        "usda_crop": {
+            "url": "https://data.source.coop/fiboa/us-usda-cropland/us_usda_cropland.parquet",
+            "info_url": "https://source.coop/fiboa/us-usda-cropland/description",
+            "needs_validation": False,
+            "display_name": "USDA Crop Sequence Boundaries"
+        },
+        "ca_crop": {
+            "url": "https://data.source.coop/fiboa/us-ca-scm/us_ca_scm.parquet",
+            "info_url": "https://source.coop/repositories/fiboa/us-ca-scm/description",
+            "needs_validation": False,
+            "display_name": "California Crop Mapping"
+        },
+        "vida_buildings": {
+            "url": "s3://us-west-2.opendata.source.coop/vida/google-microsoft-osm-open-buildings/geoparquet/by_country/*/*.parquet",
+            "info_url": "https://source.coop/repositories/vida/google-microsoft-osm-open-buildings/description",
+            "needs_validation": False,
+            "display_name": "VIDA Google/Microsoft/OSM Buildings"
+        }
+    }
+}
+
 class Worker(QObject):
     finished = pyqtSignal()
     error = pyqtSignal(str)
@@ -185,15 +247,15 @@ class ValidationWorker(QObject):
         self.killed = False
 
     def needs_validation(self):
-        #TODO: Change this to be driven by a list that is easier to manage
-        # instead of having all this custom logic here.
         """Determine if the dataset needs any validation"""
-        # Overture datasets don't need validation
-        if "overturemaps-us-west-2" in self.dataset_url:
-            return False
-        # Source Cooperative datasets don't need validation
-        if "data.source.coop" in self.dataset_url:
-            return False
+        # Check if URL matches any preset dataset
+        for source in PRESET_DATASETS.values():
+            for dataset in source.values():
+                if isinstance(dataset.get('url'), str) and dataset['url'] in self.dataset_url:
+                    return dataset.get('needs_validation', True)
+                elif isinstance(dataset.get('url_template'), str) and dataset['url_template'].split('{')[0] in self.dataset_url:
+                    return dataset.get('needs_validation', True)
+        
         # All other datasets need validation
         return True
 
@@ -285,12 +347,8 @@ class DataSourceDialog(QDialog):
         overture_layout = QVBoxLayout()
         self.overture_combo = QComboBox()
         self.overture_combo.addItems([
-            "Places", 
-            "Buildings", 
-            "Transportation",
-            "Addresses",
-            "Divisions",
-            "Base"
+            dataset.get('display_name', key.title()) 
+            for key, dataset in PRESET_DATASETS['overture'].items()
         ])
         overture_layout.addWidget(self.overture_combo)
         
@@ -323,10 +381,8 @@ class DataSourceDialog(QDialog):
         sourcecoop_layout = QVBoxLayout()
         self.sourcecoop_combo = QComboBox()
         self.sourcecoop_combo.addItems([
-            "Planet EU Field Boundaries (2022)",
-            "USDA Crop Sequence Boundaries",
-            "California Crop Mapping",
-            "VIDA Google/Microsoft/OSM Buildings"
+            dataset['display_name'] 
+            for dataset in PRESET_DATASETS['source_cooperative'].values()
         ])
         sourcecoop_layout.addWidget(self.sourcecoop_combo)
 
@@ -473,6 +529,7 @@ class DataSourceDialog(QDialog):
             return self.url_input.text().strip()
         elif self.overture_radio.isChecked():
             theme = self.overture_combo.currentText().lower()
+            dataset = PRESET_DATASETS['overture'][theme]
             if theme == "transportation":
                 type_str = "segment"
             elif theme == "divisions":
@@ -483,17 +540,12 @@ class DataSourceDialog(QDialog):
                 type_str = self.base_subtype_combo.currentText()
             else:
                 type_str = theme.rstrip('s')  # remove trailing 's' for singular form
-            return f"s3://overturemaps-us-west-2/release/2024-11-13.0/theme={theme}/type={type_str}/*"
+            return dataset['url_template'].format(subtype=type_str)
         elif self.sourcecoop_radio.isChecked():
             selection = self.sourcecoop_combo.currentText()
-            if selection == "USDA Crop Sequence Boundaries":
-                return "https://data.source.coop/fiboa/us-usda-cropland/us_usda_cropland.parquet"
-            elif selection == "California Crop Mapping":
-                return "https://data.source.coop/fiboa/us-ca-scm/us_ca_scm.parquet"
-            elif selection == "Planet EU Field Boundaries (2022)":
-                return "https://data.source.coop/planet/eu-field-boundaries/field_boundaries.parquet"
-            elif selection == "VIDA Google/Microsoft/OSM Buildings":
-                return "s3://us-west-2.opendata.source.coop/vida/google-microsoft-osm-open-buildings/geoparquet/by_country/*/*.parquet"
+            dataset = next((dataset for dataset in PRESET_DATASETS['source_cooperative'].values() if dataset['display_name'] == selection), None)
+            if dataset:
+                return dataset['url']
         elif self.other_radio.isChecked():
             selection = self.other_combo.currentText()
             if selection == "Foursquare Places":
