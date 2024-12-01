@@ -24,12 +24,13 @@ class Worker(QObject):
     progress = pyqtSignal(str)
     percent = pyqtSignal(int)
 
-    def __init__(self, dataset_url, extent, output_file, iface):
+    def __init__(self, dataset_url, extent, output_file, iface, validation_results):
         super().__init__()
         self.dataset_url = dataset_url
         self.extent = extent
         self.output_file = output_file
         self.iface = iface
+        self.validation_results = validation_results
         self.killed = False
 
     def run(self):
@@ -55,17 +56,20 @@ class Worker(QObject):
             self.progress.emit("Preparing query...")
             select_query = "SELECT *"
             if not self.output_file.endswith(".parquet"):
-
-                # Get the schema of the dataset to identify column types
-                schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
-                schema_result = conn.execute(schema_query).fetchall()
-
+                # Use schema from validation results instead of querying again
+                schema_result = self.validation_results.get('schema')
+                
+                if schema_result is None:
+                    # If no schema available, query it now
+                    schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
+                    schema_result = conn.execute(schema_query).fetchall()
+                    self.validation_results['schema'] = schema_result
+                
                 # Construct the SELECT clause with array conversion to strings
                 columns = []
                 for row in schema_result:
                     col_name = row[0]
                     col_type = row[1]
-                    
                     
                     if 'STRUCT' in col_type.upper() or 'MAP' in col_type.upper():
                         columns.append(f"TO_JSON({col_name}) AS {col_name}")
@@ -74,12 +78,11 @@ class Worker(QObject):
                     else:
                         columns.append(col_name)
 
-                   # When we support more than overture just select the primary name when it's o
-
-                    select_query = f"SELECT names.primary as name,{', '.join(columns)}"
+                # When we support more than overture just select the primary name when it's o
+                select_query = f"SELECT names.primary as name,{', '.join(columns)}"
             # Construct WHERE clause based on presence of bbox (this code is not called now as validation ensures the bbox is there
             # but leaving it here for now as we may want to support non-bbox / 1.0 queries in the future)
-            if (True): #has_bbox:
+            if self.validation_results.get('has_bbox', True):
                 where_clause = f"""
                 WHERE bbox.xmin BETWEEN {bbox.xMinimum()} AND {bbox.xMaximum()}
                 AND bbox.ymin BETWEEN {bbox.yMinimum()} AND {bbox.yMaximum()}
@@ -171,7 +174,7 @@ class Worker(QObject):
         self.killed = True
 
 class ValidationWorker(QObject):
-    finished = pyqtSignal(bool, str)
+    finished = pyqtSignal(bool, str, dict)
     progress = pyqtSignal(str)
 
     def __init__(self, dataset_url, iface, extent):
@@ -196,52 +199,38 @@ class ValidationWorker(QObject):
 
     def run(self):
         try:
+            validation_results = {
+                'has_bbox': True,
+                'schema': None
+            }
+            
             self.progress.emit("Connecting to data source...")
             conn = duckdb.connect()
             conn.execute("INSTALL spatial;")
             conn.execute("LOAD spatial;")
             
             if not self.needs_validation():
-                self.finished.emit(True, "Validation successful")
+                self.finished.emit(True, "Validation successful", validation_results)
                 return
             
             self.progress.emit("Checking data format...")
             schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
             schema_result = conn.execute(schema_query).fetchall()
-            has_bbox = any(row[0].lower() == 'bbox' for row in schema_result)
             
-            if not has_bbox:
-                self.finished.emit(False, "This plugin currently only supports GeoParquet 1.1 files with a bbox column.")
+            # Store schema and check for BBOX
+            validation_results['schema'] = schema_result
+            validation_results['has_bbox'] = any(row[0].lower() == 'bbox' and 'struct' in row[1].lower() 
+                                               for row in schema_result)
+            
+            if not validation_results['has_bbox']:
+                self.finished.emit(False, "This plugin currently only supports GeoParquet 1.1 files with a bbox column.", 
+                                 validation_results)
                 return
 
-            if (False): # TODO: See about checking this faster based on geoparquet metadata - it's too slow now.
-                self.progress.emit("Checking data bounds...")
-                bounds_query = f"""
-                SELECT MIN(bbox.xmin) as min_x, MAX(bbox.xmax) as max_x,
-                    MIN(bbox.ymin) as min_y, MAX(bbox.ymax) as max_y
-                FROM read_parquet('{self.dataset_url}')
-                """
-                bounds_result = conn.execute(bounds_query).fetchone()
-                
-                if bounds_result and not self.killed:
-                    min_x, max_x, min_y, max_y = bounds_result
-                    source_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
-                    bbox = transform_bbox_to_4326(self.extent, source_crs)
-                    request_bounds = (bbox.xMinimum(), bbox.xMaximum(), 
-                                    bbox.yMinimum(), bbox.yMaximum())
-                    
-                    # Check for overlap
-                    if (max_x < request_bounds[0] or min_x > request_bounds[1] or
-                        max_y < request_bounds[2] or min_y > request_bounds[3]):
-                        self.finished.emit(False, "The current view extent does not overlap with the data. " +
-                                    f"\nData bounds: {min_x:.2f}, {min_y:.2f}, {max_x:.2f}, {max_y:.2f}" +
-                                    f"\nRequested bounds: {request_bounds[0]:.2f}, {request_bounds[2]:.2f}, {request_bounds[1]:.2f}, {request_bounds[3]:.2f}")
-                        return
-                
-            self.finished.emit(True, "Validation successful")
+            self.finished.emit(True, "Validation successful", validation_results)
 
         except Exception as e:
-            self.finished.emit(False, f"Error validating source: {str(e)}")
+            self.finished.emit(False, f"Error validating source: {str(e)}", {})
         finally:
             conn.close()
 
@@ -498,7 +487,7 @@ class DataSourceDialog(QDialog):
         elif self.sourcecoop_radio.isChecked():
             selection = self.sourcecoop_combo.currentText()
             if selection == "USDA Crop Sequence Boundaries":
-                return "https://source.coop/fiboa/us-usda-cropland/us_usda_cropland.parquet"
+                return "https://data.source.coop/fiboa/us-usda-cropland/us_usda_cropland.parquet"
             elif selection == "California Crop Mapping":
                 return "https://data.source.coop/fiboa/us-ca-scm/us_ca_scm.parquet"
             elif selection == "Planet EU Field Boundaries (2022)":
@@ -595,8 +584,6 @@ class QgisPluginGeoParquet:
             return
         
         dataset_url = dialog.get_url()
-        
-        # Get the current canvas extent
         extent = self.iface.mapCanvas().extent()
         
         # Generate default filename
@@ -622,24 +609,44 @@ class QgisPluginGeoParquet:
                     output_file += '.parquet'
                 elif selected_filter == "GeoPackage (*.gpkg)":
                     output_file += '.gpkg'
+
+            self.validation_worker = ValidationWorker(dataset_url, self.iface, extent)
+            self.validation_thread = QThread()
+            self.validation_worker.moveToThread(self.validation_thread)
             
-            # Remove the validation check since it's already done in DataSourceDialog
-            self.download_and_save(dataset_url, extent, output_file)
+            # Connect signals
+            self.validation_thread.started.connect(self.validation_worker.run)
+            self.validation_worker.progress.connect(self.update_progress)
+            self.validation_worker.finished.connect(
+                lambda success, message, results: self.handle_validation_result(
+                    success, message, results, dataset_url, extent, output_file
+                )
+            )
+            
+            self.validation_thread.start()
 
-    def download_and_save(self, dataset_url, extent: QgsRectangle, output_file: str):
-        # Clean up any existing worker/thread
-        if self.worker_thread is not None:
-            self.cleanup_thread()
+    def handle_validation_result(self, success, message, validation_results, dataset_url, extent, output_file):
+        if success:
+            # Pass validation results to the worker
+            self.download_and_save(dataset_url, extent, output_file, validation_results)
+        else:
+            QMessageBox.warning(self.iface.mainWindow(), "Validation Error", message)
+        
+        # Cleanup validation thread
+        self.validation_thread.quit()
+        self.validation_thread.wait()
+        self.validation_worker = None
+        self.validation_thread = None
 
+    def download_and_save(self, dataset_url, extent, output_file, validation_results):
         # Create progress dialog
         self.progress_dialog = QProgressDialog("Starting download...", "Cancel", 0, 0, self.iface.mainWindow())
         self.progress_dialog.setWindowTitle("Downloading Data")
         self.progress_dialog.setWindowModality(Qt.NonModal)
         self.progress_dialog.setMinimumDuration(0)
-        self.progress_dialog.show()
         
-        # Create new worker and thread
-        self.worker = Worker(dataset_url, extent, output_file, self.iface)
+        # Create worker with validation results
+        self.worker = Worker(dataset_url, extent, output_file, self.iface, validation_results)
         self.worker_thread = QThread()
         
         # Move worker to thread
@@ -654,7 +661,8 @@ class QgisPluginGeoParquet:
         self.worker.progress.connect(self.update_progress)
         self.progress_dialog.canceled.connect(self.cancel_download)
         
-        # Start the thread
+        # Show the progress dialog and start the thread
+        self.progress_dialog.show()
         self.worker_thread.start()
 
     def handle_error(self, message):
