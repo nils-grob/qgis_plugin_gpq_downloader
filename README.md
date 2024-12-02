@@ -1,18 +1,24 @@
-# qgis_plugin_gpq_downloader
+# GeoParquet Downloader for QGIS
 
-An attempt at a qgis plugin to make it easier to stream data from large GeoParquet 1.1 datasets with BBOX.
+This repo contains a QGIS plugin for downloading GeoParquet data from cloud sources, including Overture Maps, Source Cooperative, and the ability to enter the location of any online GeoParquet file or partition. Just the user's current viewport then gets downloaded, as GeoParquet, DuckDB or GeoPackage.
 
-This is a work in progress - but it seems to be working to download from places & roads Overture data into GeoParquet.
+TODO: (show gif of it working)
 
-Next steps:
+The core idea is that GeoParquet can act more like a 'server', letting users download only the data they need, if you add a bit more smarts to the client. So this plugin uses [DuckDB](https://duckdb.org/) but abstracts all the details of forming the right queries to external sources, so users can just pick the data they want and pull it down with ease. And with GeoPackage output users don't even need to know anything about GeoParquet.
 
-* Distribute as a QGIS plugin, figure out how dependencies work
- * Better way to organize what data goes in each area. To start just define it all in one place, with what validation it could use. Eventually investigate things like building the area of interest into it for faster bounds checks, and auto-populating it based on source coop / overture releases.
- * Make use of admin-partitioned files like vida by figuring out the admin boundaries to request to speed up the download. I think I did this in the open buildings code (though that might have just been user supplied).
- * And better selection of area to download
- * Add other output formats
- * More accurate progress bar? Seems like duckdb may be able to emit percentages, but they don't seem to be that accurate. Could do a two step process of downloading and then writing format.
- * Filter files by attributes (maybe just sql? Or cooler could be to introspect fields and make a dropdown list of attributes to filter by - but that's likely a lot of work)
- * Add tests
- * Add CI
- * Figure out pip installation - .toml file?
+## Installation
+
+The goal will be to distribute this through the QGIS plugin repository, but for now you can install it manually by downloading a zip file from the [releases page](https://github.com/cholmes/qgis_plugin_gpq_downloader/releases) and using 'install from zip' in QGIS. (Hoping to soon get the plugin working with the new QGIS plugin manager so this won't be necessary in the future.)
+
+## Usage
+
+TODO:
+
+## Contributing
+
+This plugin has been made entirely with AI coding tools (primarily Cursor with claude-3.5-sonnet). Contributions are very welcome, both from more experienced python developers who can help clean up the code and add missing features, and from anyone who wants a place to do AI-assisted coding that (hopefully) actually gets widely used.
+
+I'm interested in exploring open source collaboration in the age of AI coding tools, especially working with less experienced developers who'd like to contribute, so don't hesitate to jump in with AI-assisted pull requests!
+
+
+ 

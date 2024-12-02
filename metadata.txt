@@ -1,11 +1,41 @@
 [general]
 name=GeoParquet Downloader (Overture, Source & Custom Cloud)
-description=This plugin will connect to cloud-based GeoParquet data and download the portion of it that's in the current viewport.
-    It uses DuckDB under the hood.
+description=This plugin connects to cloud-based GeoParquet data and downloads the portion in the current viewport.
 version=0.1
 qgisMinimumVersion=3.16
+icon=resources/icons/parquet-download.png
+about=Plugin for downloading GeoParquet data from cloud sources.
+    
+    The plugin comes with pre-configured sources for <a href="https://overturemaps.org/">Overture 
+    Maps</a>, <a href="https://source.coop/">Source Cooperative</a>, and you can enter the location 
+    of any online GeoParquet file or partition. It works best with 
+    the bbox struct from GeoParquet 1.1, but any GeoParquet file 
+    will work. You can save the output data as GeoParquet, 
+    GeoPackage or DuckDB.
+
+    The plugin depends on DuckDB. If you're running on Windows
+    we recommend using the <a href="https://oslandia.gitlab.io/qgis/qduckdb/">QDuckDB plugin</a> which includes a 
+    precompiled binary. For other platforms you can install
+    DuckDB via pip. For Mac OS/X be sure to install on QGIS's
+    python, not the systems. For more tips on installing DuckDB
+    see QDuckDB's <a href="https://oslandia.gitlab.io/qgis/qduckdb/usage/installation.html">installation documentation</a>.
+
+    The plugin does not require that your QGIS supports 
+    GeoParquet, as you can download data as GeoPackage, but 
+    GeoParquet generally works better (faster and better nested 
+    data). Most Windows installations come with it, and for Mac 
+    and Linux you can install via conda. For information on 
+    installing Geoparquet support see <a href="https://github.com/cholmes/qgis_plugin_gpq_downloader/wiki/Installing-GeoParquet-Support-in-QGIS">this wiki page</a>.
+
+tags=geoparquet,parquet,overture,source cooperative,cloud,duckdb,geopackage
+
+# credits and contact
 author=Chris Holmes
-email=chomie@gmail.com
+email=cholmes@9eo.org
+homepage=https://github.com/cholmes/qgis_plugin_gpq_downloader/
+repository=https://github.com/cholmes/qgis_plugin_gpq_downloader/
+tracker=https://github.com/cholmes/qgis_plugin_gpq_downloader/issues
+
 
 [dependencies]
 pip_dependencies=duckdb>=1.0.0

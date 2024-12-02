@@ -608,7 +608,7 @@ class QgisPluginGeoParquet:
 
     def initGui(self):
         # Create the action with the icon and tooltip
-        icon_path = ':/qgis_plugin_gpq_downloader/icons/download.svg'
+        icon_path = ':/qgis_plugin_gpq_downloader/icons/parquet-download.svg'
         self.action = QAction(
             QIcon(icon_path),
             "Download GeoParquet Data", 
@@ -756,7 +756,7 @@ class QgisPluginGeoParquet:
                 
                 message = QLabel(
                     "Data has been successfully saved to GeoParquet file.\n\n"
-                    "Note: Your current QGIS installation does not support reading GeoParquet files directly.\n\n"
+                    "Note: Your current QGIS installation does not support reading GeoParquet files directly. You can select GeoPackage for your output format to view immediately.\n\n"
                     "To view GeoParquet files in QGIS, you'll need to install QGIS with GDAL 3.8 "
                     "or higher with 'libgdal-arrow-parquet'. You can find instructions at:"
                 )
