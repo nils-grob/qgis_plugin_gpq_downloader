@@ -11,6 +11,8 @@ The core idea is that GeoParquet can act more like a 'server', letting users dow
 
 The goal will be to distribute this through the QGIS plugin repository, but for now you can install it manually by downloading a zip file from the [releases page](https://github.com/cholmes/qgis_plugin_gpq_downloader/releases) and using 'install from zip' in QGIS. (Hoping to soon get the plugin working with the new QGIS plugin manager so this won't be necessary in the future.)
 
+See [metadata.txt](./metadata.txt) for OS-specific installation notes.
+
 ## Usage
 
 TODO:
