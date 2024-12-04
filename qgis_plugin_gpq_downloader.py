@@ -75,6 +75,14 @@ PRESET_DATASETS = {
             "needs_validation": False,
             "display_name": "VIDA Google/Microsoft/OSM Buildings"
         }
+    },
+    "other": {
+        "foursquare_places": {
+            "url": "hf://datasets/foursquare/fsq-os-places/release/dt=2024-12-03/places/parquet/*.parquet",
+            "info_url": "https://docs.foursquare.com/data-products/docs/places-overview",
+            "needs_validation": False,
+            "display_name": "Foursquare Places"
+        }
     }
 }
 
@@ -141,7 +149,10 @@ class Worker(QObject):
                         columns.append(col_name)
 
                 # When we support more than overture just select the primary name when it's o
-                select_query = f"SELECT names.primary as name,{', '.join(columns)}"
+                if 'overture' in self.dataset_url:
+                    select_query = f"SELECT names.primary as name,{', '.join(columns)}"
+                else:
+                    select_query = f"SELECT {', '.join(columns)}"
             # Construct WHERE clause based on presence of bbox (this code is not called now as validation ensures the bbox is there
             # but leaving it here for now as we may want to support non-bbox / 1.0 queries in the future)
             if self.validation_results.get('has_bbox', True):
@@ -320,7 +331,7 @@ class DataSourceDialog(QDialog):
         self.custom_radio = QRadioButton("Custom URL")
         self.overture_radio = QRadioButton("Overture Maps")
         self.sourcecoop_radio = QRadioButton("Source Cooperative")
-        self.other_radio = QRadioButton("Other Sources")
+        self.other_radio = QRadioButton("Hugging Face")
         
         # Add radio buttons to horizontal layout
         radio_layout.addWidget(self.custom_radio)
@@ -404,10 +415,23 @@ class DataSourceDialog(QDialog):
         other_layout = QVBoxLayout()
         self.other_combo = QComboBox()
         self.other_combo.addItems([
-            "Foursquare Places"
+            dataset['display_name'] 
+            for dataset in PRESET_DATASETS['other'].values()
         ])
         other_layout.addWidget(self.other_combo)
+        
+        # Add link label for other sources
+        self.other_link = QLabel()
+        self.other_link.setOpenExternalLinks(True)
+        self.other_link.setWordWrap(True)
+        other_layout.addWidget(self.other_link)
+        
+        # Connect combo box change to update link
+        self.other_combo.currentTextChanged.connect(self.update_other_link)
         other_page.setLayout(other_layout)
+        
+        # Add initial link update for other sources
+        self.update_other_link(self.other_combo.currentText())
         
         # Add pages to stack
         self.stack.addWidget(custom_page)
@@ -455,9 +479,9 @@ class DataSourceDialog(QDialog):
         # For custom URLs, do some basic validation
         if self.custom_radio.isChecked():
             if not (url.startswith('http://') or url.startswith('https://') or 
-                   url.startswith('s3://') or url.startswith('file://')):
+                   url.startswith('s3://') or url.startswith('file://') or url.startswith('hf://')):
                 QMessageBox.warning(self, "Validation Error", 
-                    "URL must start with http://, https://, s3://, or file://")
+                    "URL must start with http://, https://, s3://, hf://,or file://")
                 return
 
         # Set requires_validation based on the selected dataset
@@ -552,24 +576,34 @@ class DataSourceDialog(QDialog):
                 return dataset['url']
         elif self.other_radio.isChecked():
             selection = self.other_combo.currentText()
-            if selection == "Foursquare Places":
-                QMessageBox.warning(self, "Not Implemented", 
-                    "Foursquare Places integration is not yet implemented. Please select another data source.")
-                return ""
+            dataset = next((dataset for dataset in PRESET_DATASETS['other'].values() 
+                          if dataset['display_name'] == selection), None)
+            if dataset:
+                return dataset['url']
         return ""
 
     def update_sourcecoop_link(self, selection):
         """Update the link based on the selected dataset"""
         if selection == "Planet EU Field Boundaries (2022)":
-            self.sourcecoop_link.setText('<a href="https://source.coop/repositories/planet/eu-field-boundaries/description">View dataset description</a>')
+            self.sourcecoop_link.setText('<a href="https://source.coop/repositories/planet/eu-field-boundaries/description">View dataset info</a>')
         elif selection == "USDA Crop Sequence Boundaries":
-            self.sourcecoop_link.setText('<a href="https://source.coop/fiboa/us-usda-cropland/description">View dataset description</a>')
+            self.sourcecoop_link.setText('<a href="https://source.coop/fiboa/us-usda-cropland/description">View dataset info</a>')
         elif selection == "California Crop Mapping":
-            self.sourcecoop_link.setText('<a href="https://source.coop/repositories/fiboa/us-ca-scm/description">View dataset description</a>')
+            self.sourcecoop_link.setText('<a href="https://source.coop/repositories/fiboa/us-ca-scm/description">View dataset info</a>')
         elif selection == "VIDA Google/Microsoft/OSM Buildings":
-            self.sourcecoop_link.setText('<a href="https://source.coop/repositories/vida/google-microsoft-osm-open-buildings/description">View dataset description</a>')
+            self.sourcecoop_link.setText('<a href="https://source.coop/repositories/vida/google-microsoft-osm-open-buildings/description">View dataset info</a>')
         else:
             self.sourcecoop_link.setText('')
+
+    def update_other_link(self, selection):
+        """Update the link based on the selected dataset"""
+        for dataset in PRESET_DATASETS['other'].values():
+            if dataset['display_name'] == selection:
+                self.other_link.setText(
+                    f'<a href="{dataset["info_url"]}">View dataset info</a>'
+                )
+                return
+        self.other_link.setText('')
 
     def show_bbox_warning(self):
         """Show bbox warning dialog in main thread"""

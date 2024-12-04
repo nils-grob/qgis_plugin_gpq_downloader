@@ -1,7 +1,7 @@
 [general]
-name=GeoParquet Downloader (Overture, Source & Custom Cloud)
+name=GeoParquet Downloader (Overture, Source Coop & Custom Cloud)
 description=This plugin connects to cloud-based GeoParquet data and downloads the portion in the current viewport.
-version=0.1
+version=0.2
 qgisMinimumVersion=3.16
 icon=resources/icons/parquet-download.png
 about=Plugin for downloading GeoParquet data from cloud sources.
