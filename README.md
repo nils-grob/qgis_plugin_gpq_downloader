@@ -21,12 +21,13 @@ See [metadata.txt](./metadata.txt) for more OS-specific installation notes.
 
 The plugin will install 3 buttons on the QGIS toolbar:
 
-
+<img width="100" alt="Screenshot 2024-12-04 at 5 53 27 AM" src="https://github.com/user-attachments/assets/7dd43669-5fe1-4536-af08-1df6a427d145">
 
 All three open the same dialog box, but the Overture and Source Cooperative
 buttons take you straight to the relevant sections. The default button
 lets you enter the URL of any GeoParquet file or partition.
 
+<img width="561" alt="Screenshot 2024-12-04 at 6 06 23 AM" src="https://github.com/user-attachments/assets/7866e0d6-f3eb-4390-bc70-09c931023f56">
 
 
 To use it move to an area where you'd like to download data and then select which layer you'd like to download. From there you can choose the output format (GeoParquet, GeoPackage or DuckDB) and the location to download the data to.
