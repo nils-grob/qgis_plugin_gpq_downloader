@@ -662,36 +662,36 @@ class QgisPluginGeoParquet:
         # Connect validation complete signal to handle the result
         dialog.validation_complete.connect(
             lambda success, message, results: self.handle_validation_complete(
-                success, message, results, dialog.get_url(), self.iface.mapCanvas().extent(), dialog
+                success, message, results, dialog
             )
         )
         
         if dialog.exec_() != QDialog.Accepted:
             return
 
-    def handle_validation_complete(self, success, message, validation_results, url, extent, dialog):
+    def handle_validation_complete(self, success, message, validation_results, dialog):
         """Handle validation completion and start download if successful."""
         if success:
             # Get current date for filename
-            current_date = datetime.datetime.now().strftime('%Y%m%d')
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             
             # Generate the default filename based on dialog selection
             if dialog.overture_radio.isChecked():
                 theme = dialog.overture_combo.currentText().lower()
                 if theme == "base":
                     subtype = dialog.base_subtype_combo.currentText()
-                    filename = f"overture_base_{subtype}_{current_date}.parquet"
+                    filename = f"overture_base_{subtype}_{timestamp}.parquet"
                 else:
-                    filename = f"overture_{theme}_{current_date}.parquet"
+                    filename = f"overture_{theme}_{timestamp}.parquet"
             
             elif dialog.sourcecoop_radio.isChecked():
                 selection = dialog.sourcecoop_combo.currentText()
                 # Convert display name to safe filename format
                 safe_name = selection.lower().replace(" ", "_").replace("/", "_")
-                filename = f"sourcecoop_{safe_name}_{current_date}.parquet"
+                filename = f"sourcecoop_{safe_name}_{timestamp}.parquet"
             
             else:  # custom URL
-                filename = f"custom_download_{current_date}.parquet"
+                filename = f"custom_download_{timestamp}.parquet"
 
             default_save_path = str(self.download_dir / filename)
 
@@ -705,7 +705,7 @@ class QgisPluginGeoParquet:
 
             if output_file:
                 self.output_file = output_file
-                self.download_and_save(url, extent, output_file, validation_results)
+                self.download_and_save(dialog.get_url(), self.iface.mapCanvas().extent(), output_file, validation_results)
         else:
             QMessageBox.warning(self.iface.mainWindow(), "Validation Error", message)
 
@@ -795,13 +795,13 @@ class QgisPluginGeoParquet:
                 dialog.exec_()
                 return
 
-        layer_name = Path(output_file).stem  # Get filename without extension
+            # Use the filename without extension as the layer name
+        layer_name = Path(output_file).stem
         # Create the layer
         layer = QgsVectorLayer(output_file, layer_name, "ogr")
         if not layer.isValid():
             QMessageBox.critical(self.iface.mainWindow(), "Error", f"Failed to load the layer from {output_file}")
             return
-        # Add the layer to the QGIS project
         QgsProject.instance().addMapLayer(layer)
 
     def show_info(self, message):
