@@ -12,6 +12,7 @@ from qgis.core import (
 )
 import duckdb
 import os
+import datetime
 from pathlib import Path
 from .utils import transform_bbox_to_4326
 from . import resources_rc
@@ -697,22 +698,39 @@ class QgisPluginGeoParquet:
         # Connect validation complete signal to handle the result
         dialog.validation_complete.connect(
             lambda success, message, results: self.handle_validation_complete(
-                success, message, results, dialog.get_url(), self.iface.mapCanvas().extent()
+                success, message, results, dialog
             )
         )
         
         if dialog.exec_() != QDialog.Accepted:
             return
 
-    def handle_validation_complete(self, success, message, validation_results, dataset_url, extent):
-        """Handle validation completion and start download if successful"""
+    def handle_validation_complete(self, success, message, validation_results, dialog):
+        """Handle validation completion and start download if successful."""
         if success:
-            # Generate default filename
-            from datetime import datetime
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            default_filename = f"geoparquet_download_{timestamp}.parquet"
-            default_save_path = str(self.download_dir / default_filename)
+            # Get current date for filename
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             
+            # Generate the default filename based on dialog selection
+            if dialog.overture_radio.isChecked():
+                theme = dialog.overture_combo.currentText().lower()
+                if theme == "base":
+                    subtype = dialog.base_subtype_combo.currentText()
+                    filename = f"overture_base_{subtype}_{timestamp}.parquet"
+                else:
+                    filename = f"overture_{theme}_{timestamp}.parquet"
+            
+            elif dialog.sourcecoop_radio.isChecked():
+                selection = dialog.sourcecoop_combo.currentText()
+                # Convert display name to safe filename format
+                safe_name = selection.lower().replace(" ", "_").replace("/", "_")
+                filename = f"sourcecoop_{safe_name}_{timestamp}.parquet"
+            
+            else:  # custom URL
+                filename = f"custom_download_{timestamp}.parquet"
+
+            default_save_path = str(self.download_dir / filename)
+
             # Show save file dialog
             output_file, selected_filter = QFileDialog.getSaveFileName(
                 self.iface.mainWindow(),
@@ -720,12 +738,13 @@ class QgisPluginGeoParquet:
                 default_save_path,
                 "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg)"
             )
-            
+
             if output_file:
                 self.output_file = output_file
-                self.download_and_save(dataset_url, extent, output_file, validation_results)
+                self.download_and_save(dialog.get_url(), self.iface.mapCanvas().extent(), output_file, validation_results)
         else:
             QMessageBox.warning(self.iface.mainWindow(), "Validation Error", message)
+
 
     def download_and_save(self, dataset_url, extent, output_file, validation_results):
         # Create progress dialog
@@ -812,12 +831,13 @@ class QgisPluginGeoParquet:
                 dialog.exec_()
                 return
 
-        # If we get here, either it's not a parquet file or GeoParquet is supported
-        layer = QgsVectorLayer(output_file, "Downloaded Layer", "ogr")
+            # Use the filename without extension as the layer name
+        layer_name = Path(output_file).stem
+        # Create the layer
+        layer = QgsVectorLayer(output_file, layer_name, "ogr")
         if not layer.isValid():
-            QMessageBox.critical(self.iface.mainWindow(), "Error", "Failed to load the layer.")
+            QMessageBox.critical(self.iface.mainWindow(), "Error", f"Failed to load the layer from {output_file}")
             return
-
         QgsProject.instance().addMapLayer(layer)
 
     def show_info(self, message):
