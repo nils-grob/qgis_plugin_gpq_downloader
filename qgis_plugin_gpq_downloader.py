@@ -75,6 +75,18 @@ PRESET_DATASETS = {
             "info_url": "https://source.coop/repositories/vida/google-microsoft-osm-open-buildings/description",
             "needs_validation": False,
             "display_name": "VIDA Google/Microsoft/OSM Buildings"
+        },
+        "us_structures": {
+            "url": "s3://us-west-2.opendata.source.coop/wherobots/usa-structures/geoparquet/*.parquet",
+            "info_url": "https://source.coop/wherobots/usa-structures/geoparquet",
+            "needs_validation": False,
+            "display_name": "US Structures from ORNL by Wherobots"
+        },
+        "fsq_places_fused": {
+            "url": "s3://us-west-2.opendata.source.coop/fused/fsq-os-places/2024-12-03/places/*.parquet",
+            "info_url": "https://source.coop/repositories/fused/fsq-os-places/description",
+            "needs_validation": False,
+            "display_name": "Foursquare Open Source Places - Fused-partitioned"
         }
     },
     "other": {
