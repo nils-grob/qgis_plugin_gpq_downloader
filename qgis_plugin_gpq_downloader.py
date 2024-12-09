@@ -707,7 +707,7 @@ class QgisPluginGeoParquet:
         """Handle validation completion and start download if successful."""
         if success:
             # Get current date for filename
-            current_date = datetime.datetime.now().strftime('%Y%m%d')
+            current_date = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
             
             # Generate the default filename based on dialog selection
             if dialog.overture_radio.isChecked():
