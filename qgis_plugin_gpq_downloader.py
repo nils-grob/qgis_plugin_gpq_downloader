@@ -119,9 +119,7 @@ class Worker(QObject):
             else:
                 conn = duckdb.connect() 
 
-            conn.execute("INSTALL httpfs;")
             conn.execute("LOAD httpfs;")
-            conn.execute("INSTALL spatial;")
             conn.execute("LOAD spatial;")
 
             table_name = "download_data" # TODO: Better name, in line with user selected name
