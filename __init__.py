@@ -6,23 +6,42 @@ import subprocess
 def ensure_duckdb():
     try:
         import duckdb
-        print("DuckDB already installed")
-        return True
-    except ImportError:
-        print("DuckDB not found, attempting to install...")
-        try:
-            # Get the Python executable that's running QGIS
-            python_exe = sys.executable
+        version = duckdb.__version__
+        from packaging import version as version_parser
+        
+        if version_parser.parse(version) >= version_parser.parse("1.1.0"):
+            print(f"DuckDB {version} already installed")
+            # Install required extensions
+            try:
+                conn = duckdb.connect(':memory:')
+                conn.execute("INSTALL httpfs;")
+                conn.execute("INSTALL spatial;")
+                conn.close()
+                print("DuckDB extensions installed successfully")
+            except Exception as e:
+                print(f"Failed to install DuckDB extensions: {str(e)}")
+                return False
+            return True
+        else:
+            print(f"DuckDB {version} found but needs upgrade to 1.1.0+")
+            raise ImportError("Version too old")
             
-            # Install duckdb using pip
-            subprocess.check_call([python_exe, "-m", "pip", "install", "--user", "duckdb"])
+    except ImportError:
+        print("DuckDB not found or needs upgrade, attempting to install/upgrade...")
+        try:
+            import pip
+            pip.main(['install', '--upgrade', 'duckdb>=1.1.0'])
+            
+            # Force Python to reload all modules to pick up the new installation
+            import importlib
+            importlib.invalidate_caches()
             
             # Try importing again
             import duckdb
-            print("DuckDB installed successfully")
+            print(f"DuckDB {duckdb.__version__} installed successfully")
             return True
         except Exception as e:
-            print(f"Failed to install DuckDB: {str(e)}")
+            print(f"Failed to install/upgrade DuckDB: {str(e)}")
             return False
 
 # Try to install/import duckdb

@@ -1,7 +1,7 @@
 [general]
 name=GeoParquet Downloader (Overture, Source Coop & Custom Cloud)
 description=This plugin connects to cloud-based GeoParquet data and downloads the portion in the current viewport.
-version=0.2.1
+version=0.3.0
 qgisMinimumVersion=3.16
 icon=icons/parquet-download.png
 about=Plugin for downloading GeoParquet data from cloud sources.
@@ -13,19 +13,16 @@ about=Plugin for downloading GeoParquet data from cloud sources.
     will work. You can save the output data as GeoParquet, 
     GeoPackage or DuckDB.
 
-    The plugin depends on DuckDB. If you're running on Windows
-    we recommend using the <a href="https://oslandia.gitlab.io/qgis/qduckdb/">QDuckDB plugin</a> which includes a 
-    precompiled binary. For other platforms you can install
-    DuckDB via pip. For Mac OS/X be sure to install on QGIS's
-    python, not the systems. For more tips on installing DuckDB
-    see QDuckDB's <a href="https://oslandia.gitlab.io/qgis/qduckdb/usage/installation.html">installation documentation</a>.
-
     The plugin does not require that your QGIS supports 
     GeoParquet, as you can download data as GeoPackage, but 
     GeoParquet generally works better (faster and better nested 
     data). Most Windows installations come with it, and for Mac 
     and Linux you can install via conda. For information on 
     installing Geoparquet support see <a href="https://github.com/cholmes/qgis_plugin_gpq_downloader/wiki/Installing-GeoParquet-Support-in-QGIS">this wiki page</a>.
+
+    The plugin depends on DuckDB, which should be installed
+    automatically when you install the plugin. If you have issues
+    with DuckDB installing please file an issue on the <a href="https://github.com/cholmes/qgis_plugin_gpq_downloader/issues">GitHub issue tracker</a>.
 
 tags=geoparquet,parquet,overture,source cooperative,cloud,duckdb,geopackage
 
