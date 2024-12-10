@@ -10,9 +10,9 @@ from qgis.core import (
     QgsProject, QgsRectangle, QgsVectorLayer, 
     QgsCoordinateReferenceSystem, QgsCoordinateTransform
 )
-import duckdb
 import os
 import datetime
+import duckdb
 from pathlib import Path
 from .utils import transform_bbox_to_4326
 from . import resources_rc
@@ -131,6 +131,8 @@ class Worker(QObject):
             else:
                 conn = duckdb.connect() 
 
+            conn.execute("INSTALL httpfs;")
+            conn.execute("INSTALL spatial;")
             conn.execute("LOAD httpfs;")
             conn.execute("LOAD spatial;")
 
