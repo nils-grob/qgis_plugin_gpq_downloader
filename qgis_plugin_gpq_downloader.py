@@ -298,7 +298,7 @@ class ValidationWorker(QObject):
             conn.execute("INSTALL spatial;")
             conn.execute("LOAD spatial;")
             conn.execute("INSTALL httpfs;")
-            conn.execute("INSTALL spatial;")
+            conn.execute("LOAD httpfs;")
             
             if not self.needs_validation():
                 self.finished.emit(True, "Validation successful", validation_results)
