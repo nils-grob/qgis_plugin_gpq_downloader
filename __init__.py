@@ -1,7 +1,21 @@
 import os
+import platform
+import subprocess
 import sys
 from pathlib import Path
-import subprocess
+
+# TODO: Either remove this or get it working - it seems like it was messing things up.
+def install_duckdb_extensions():
+    try:
+        conn = duckdb.connect(':memory:')
+        conn.execute("INSTALL httpfs;")
+        conn.execute("INSTALL spatial;")
+        conn.close()
+        print("DuckDB extensions installed successfully")
+        return True
+    except Exception as e:
+        print(f"Failed to install DuckDB extensions: {str(e)}")
+        return False
 
 def ensure_duckdb():
     try:
@@ -11,17 +25,7 @@ def ensure_duckdb():
         
         if version_parser.parse(version) >= version_parser.parse("1.1.0"):
             print(f"DuckDB {version} already installed")
-            # Install required extensions
-            try:
-                conn = duckdb.connect(':memory:')
-                conn.execute("INSTALL httpfs;")
-                conn.execute("INSTALL spatial;")
-                conn.close()
-                print("DuckDB extensions installed successfully")
-            except Exception as e:
-                print(f"Failed to install DuckDB extensions: {str(e)}")
-                return False
-            return True
+            return True #install_duckdb_extensions()
         else:
             print(f"DuckDB {version} found but needs upgrade to 1.1.0+")
             raise ImportError("Version too old")
@@ -29,8 +33,20 @@ def ensure_duckdb():
     except ImportError:
         print("DuckDB not found or needs upgrade, attempting to install/upgrade...")
         try:
-            import pip
-            pip.main(['install', '--upgrade', 'duckdb>=1.1.0'])
+            qgis_bin = os.path.dirname(sys.executable)
+            if platform.system() == "Windows":
+                py_path = os.path.join(qgis_bin, "python.exe")
+            elif platform.system() == "Darwin":
+                # Search for python3 in common QGIS Mac locations
+                possible_paths = [
+                    os.path.join(qgis_bin, "python3"),
+                    os.path.join(qgis_bin, "bin", "python3"),
+                    os.path.join(qgis_bin, "Resources", "python", "bin", "python3")
+                ]
+                py_path = next((path for path in possible_paths if os.path.exists(path)), sys.executable)
+            else:
+                py_path = sys.executable
+            subprocess.check_call([py_path, "-m", "pip", "install", "--user", "duckdb"])
             
             # Force Python to reload all modules to pick up the new installation
             import importlib
@@ -39,7 +55,7 @@ def ensure_duckdb():
             # Try importing again
             import duckdb
             print(f"DuckDB {duckdb.__version__} installed successfully")
-            return True
+            return True; #install_duckdb_extensions()
         except Exception as e:
             print(f"Failed to install/upgrade DuckDB: {str(e)}")
             return False
