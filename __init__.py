@@ -1,7 +1,8 @@
 import os
+import platform
+import subprocess
 import sys
 from pathlib import Path
-import subprocess
 
 def ensure_duckdb():
     try:
@@ -29,8 +30,11 @@ def ensure_duckdb():
     except ImportError:
         print("DuckDB not found or needs upgrade, attempting to install/upgrade...")
         try:
-            import pip
-            pip.main(['install', '--upgrade', 'duckdb>=1.1.0'])
+            if platform.system() == "Windows":
+                py_path = os.path.join(os.path.dirname(sys.executable), "python.exe")
+            else:
+                py_path = sys.executable
+            subprocess.check_call([py_path, "-m", "pip", "install", "--user", "duckdb"])
             
             # Force Python to reload all modules to pick up the new installation
             import importlib
