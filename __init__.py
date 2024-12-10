@@ -30,8 +30,11 @@ def ensure_duckdb():
     except ImportError:
         print("DuckDB not found or needs upgrade, attempting to install/upgrade...")
         try:
+            qgis_bin = os.path.dirname(sys.executable)
             if platform.system() == "Windows":
-                py_path = os.path.join(os.path.dirname(sys.executable), "python.exe")
+                py_path = os.path.join(qgis_bin, "python.exe")
+            elif platform.system() == "Darwin":
+                py_path = os.path.join(qgis_bin, "python3")
             else:
                 py_path = sys.executable
             subprocess.check_call([py_path, "-m", "pip", "install", "--user", "duckdb"])
