@@ -83,7 +83,7 @@ PRESET_DATASETS = {
             "display_name": "US Structures from ORNL by Wherobots"
         },
         "fsq_places_fused": {
-            "url": "s3://us-west-2.opendata.source.coop/fused/fsq-os-places/2024-12-03/places/*.parquet",
+            "url": "s3://us-west-2.opendata.source.coop/fused/fsq-os-places/2025-01-10/places/*.parquet",
             "info_url": "https://source.coop/repositories/fused/fsq-os-places/description",
             "needs_validation": False,
             "display_name": "Foursquare Open Source Places - Fused-partitioned"
@@ -91,7 +91,7 @@ PRESET_DATASETS = {
     },
     "other": {
         "foursquare_places": {
-            "url": "hf://datasets/foursquare/fsq-os-places/release/dt=2024-12-03/places/parquet/*.parquet",
+            "url": "hf://datasets/foursquare/fsq-os-places/release/dt=2025-01-10/places/parquet/*.parquet",
             "info_url": "https://docs.foursquare.com/data-products/docs/places-overview",
             "needs_validation": False,
             "display_name": "Foursquare Places"
