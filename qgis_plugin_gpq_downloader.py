@@ -156,18 +156,23 @@ class Worker(QObject):
                     col_name = row[0]
                     col_type = row[1]
                     
+                    # Quote the column name to handle special characters
+                    quoted_col_name = f'"{col_name}"'
+                    
                     if 'STRUCT' in col_type.upper() or 'MAP' in col_type.upper():
-                        columns.append(f"TO_JSON({col_name}) AS {col_name}")
+                        columns.append(f"TO_JSON({quoted_col_name}) AS {quoted_col_name}")
                     elif '[]' in col_type:  # Check for array types like VARCHAR[]
-                        columns.append(f"array_to_string({col_name}, ', ') AS {col_name}")
+                        columns.append(f"array_to_string({quoted_col_name}, ', ') AS {quoted_col_name}")
+                    elif col_type.upper() == 'UTINYINT':
+                        columns.append(f"CAST({quoted_col_name} AS INTEGER) AS {quoted_col_name}")
                     else:
-                        columns.append(col_name)
+                        columns.append(quoted_col_name)
 
                 # When we support more than overture just select the primary name when it's o
                 if 'overture' in self.dataset_url:
-                    select_query = f"SELECT names.primary as name,{', '.join(columns)}"
+                    select_query = f'SELECT "names"."primary" as name,{", ".join(columns)}'
                 else:
-                    select_query = f"SELECT {', '.join(columns)}"
+                    select_query = f'SELECT {", ".join(columns)}'
             # Construct WHERE clause based on presence of bbox (this code is not called now as validation ensures the bbox is there
             # but leaving it here for now as we may want to support non-bbox / 1.0 queries in the future)
             if self.validation_results.get('has_bbox', True):
