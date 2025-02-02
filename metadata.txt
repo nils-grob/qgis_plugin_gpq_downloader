@@ -36,6 +36,3 @@ tracker=https://github.com/cholmes/qgis_plugin_gpq_downloader/issues
 
 [dependencies]
 pip_dependencies=duckdb>=1.1.0
-
-[qgis]
-plugin_dependencies=qduckdb
