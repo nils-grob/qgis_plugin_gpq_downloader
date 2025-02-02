@@ -11,12 +11,12 @@ The core idea is that GeoParquet can act more like a 'server', letting users dow
 
 The easiest way to install the plugin file is to use the QGIS plugin manager. Just go to `Plugins > Manage and Install Plugins` and go to 
 the 'install' tab and search for 'GeoParquet Downloader'. Click on 'Install Plugin' and you should get it. Alternatively you can download the zip file from
-one of the [releases](https://github.com/cholmes/qgis_plugin_gpq_downloader/releases) and 'install from zip' in QGIS. Right now you also need to install DuckDB
-to get things to work. 
+one of the [releases](https://github.com/cholmes/qgis_plugin_gpq_downloader/releases) and 'install from zip' in QGIS. For the plugin to work DuckDB
+needs to be installed. As of version 0.3 the plugin should try to automatically install DuckDB. 
 
-On Windows you can use the [QDuckDB plugin](https://oslandia.gitlab.io/qgis/qduckdb/) which includes a precompiled binary. They also document how to install it on [Linux](https://oslandia.gitlab.io/qgis/qduckdb/usage/installation.html#linux) and [Mac OS/X](https://oslandia.gitlab.io/qgis/qduckdb/usage/installation.html#macos).
+If the installation of DuckDB doesn't work, then on Windows you can use the [QDuckDB plugin](https://oslandia.gitlab.io/qgis/qduckdb/) which includes a precompiled binary. They also document how to install DuckDB on [Linux](https://oslandia.gitlab.io/qgis/qduckdb/usage/installation.html#linux) and [Mac OS/X](https://oslandia.gitlab.io/qgis/qduckdb/usage/installation.html#macos).
 
-See [metadata.txt](./metadata.txt) for more OS-specific installation notes.
+See [metadata.txt](./metadata.txt) for more installation notes.
 
 ## Usage
 
