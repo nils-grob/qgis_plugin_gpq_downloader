@@ -1,7 +1,7 @@
 [general]
 name=GeoParquet Downloader (Overture, Source Coop & Custom Cloud)
 description=This plugin connects to cloud-based GeoParquet data and downloads the portion in the current viewport.
-version=0.3.3
+version=0.3.4
 qgisMinimumVersion=3.16
 icon=icons/parquet-download.png
 about=Plugin for downloading GeoParquet data from cloud sources.
@@ -36,3 +36,6 @@ tracker=https://github.com/cholmes/qgis_plugin_gpq_downloader/issues
 
 [dependencies]
 pip_dependencies=duckdb>=1.1.0
+
+[qgis]
+plugin_dependencies=qduckdb
