@@ -87,6 +87,12 @@ PRESET_DATASETS = {
             "info_url": "https://source.coop/repositories/fused/fsq-os-places/description",
             "needs_validation": False,
             "display_name": "Foursquare Open Source Places - Fused-partitioned"
+        },
+        "nhd_flowlines": {
+            "url": "https://data.source.coop/cholmes/nhd/NHDFlowline.parquet",
+            "info_url": "https://source.coop/repositories/cholmes/nhd/description",
+            "needs_validation": True, # could be false if we could specify bbox column name
+            "display_name": "NHD Flowlines (experimental)"
         }
     },
     "other": {
