@@ -20,10 +20,10 @@ class DuckDBInstallerTask(QgsTask):
         self.message = ""
         self.exception = None
         self.callback = callback
-        print("Task initialized")
+        # print("Task initialized")
 
     def run(self):
-        print("Task run method started")
+        # print("Task run method started")
         try:
             print("Starting DuckDB installation...")
             if platform.system() == "Windows":
@@ -39,12 +39,12 @@ class DuckDBInstallerTask(QgsTask):
             else:
                 py_path = sys.executable
                 
-            print(f"Using Python path: {py_path}")
-            print(f"Running pip install command...")
+            # print(f"Using Python path: {py_path}")
+            # print(f"Running pip install command...")
             
             subprocess.check_call([py_path, "-m", "pip", "install", "--user", "duckdb"])
             
-            print("Pip install completed, reloading modules...")
+            # print("Pip install completed, reloading modules...")
             import importlib
             importlib.invalidate_caches()
             
@@ -117,32 +117,32 @@ def ensure_duckdb(callback=None):
 
             # Create and start the task
             task = DuckDBInstallerTask(callback)
-            print("Created installer task")
+            # print("Created installer task")
             
             # Get the task manager and add the task
             task_manager = QgsApplication.taskManager()
-            print(f"Task manager has {task_manager.count()} tasks")
+            # print(f"Task manager has {task_manager.count()} tasks")
             
             # Add task and check if it was added successfully
             success = task_manager.addTask(task)
-            print(f"Task added successfully: {success}")
+            # print(f"Task added successfully: {success}")
             
             # Check task status
-            print(f"Task manager now has {task_manager.count()} tasks")
-            print(f"Task description: {task.description()}")
-            print(f"Task status: {task.status()}")
+            # print(f"Task manager now has {task_manager.count()} tasks")
+            # print(f"Task description: {task.description()}")
+            # print(f"Task status: {task.status()}")
 
             # Schedule periodic status checks with guarded access
             def check_status():
                 try:
                     status = task.status()
                 except RuntimeError:
-                    print("Task has been deleted, stopping status checks")
+                    # print("Task has been deleted, stopping status checks")
                     return
 
-                print(f"Current task status: {status}")
+                # print(f"Current task status: {status}")
                 if status == QgsTask.Queued:
-                    print("Task still queued, retriggering...")
+                    # print("Task still queued, retriggering...")
                     try:
                         QgsApplication.taskManager().triggerTask(task)
                     except RuntimeError:
@@ -150,7 +150,7 @@ def ensure_duckdb(callback=None):
                         return
                     QTimer.singleShot(1000, check_status)
                 elif status == QgsTask.Running:
-                    print("Task is running")
+                    #print("Task is running")
                     QTimer.singleShot(1000, check_status)
                 elif status == QgsTask.Complete:
                     print("Task completed")
@@ -191,7 +191,7 @@ class DummyPlugin:
         # The real plugin adds the buttons and other UI elements
         self.real_plugin.initGui()
         self.iface.messageBar().pushSuccess("Success", "Plugin fully loaded with all functionalities")
-        print("Real plugin loaded and UI initialized.")
+        # print("Real plugin loaded and UI initialized.")
 
 def classFactory(iface):
     """Plugin entry point"""
