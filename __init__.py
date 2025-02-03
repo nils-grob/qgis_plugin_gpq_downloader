@@ -132,19 +132,28 @@ def ensure_duckdb(callback=None):
             print(f"Task description: {task.description()}")
             print(f"Task status: {task.status()}")
 
-            # Schedule periodic status checks
+            # Schedule periodic status checks with guarded access
             def check_status():
-                status = task.status()
+                try:
+                    status = task.status()
+                except RuntimeError:
+                    print("Task has been deleted, stopping status checks")
+                    return
+
                 print(f"Current task status: {status}")
                 if status == QgsTask.Queued:
                     print("Task still queued, retriggering...")
-                    QgsApplication.taskManager().triggerTask(task)
+                    try:
+                        QgsApplication.taskManager().triggerTask(task)
+                    except RuntimeError:
+                        print("Failed to trigger task, object likely deleted")
+                        return
                     QTimer.singleShot(1000, check_status)
-                elif status == QgsTask.Complete:
-                    print("Task completed")
                 elif status == QgsTask.Running:
                     print("Task is running")
                     QTimer.singleShot(1000, check_status)
+                elif status == QgsTask.Complete:
+                    print("Task completed")
             
             # Start checking status after a short delay
             QTimer.singleShot(100, check_status)
@@ -160,10 +169,29 @@ def ensure_duckdb(callback=None):
             print(f"Traceback: {traceback.format_exc()}")
             return False
 
-def delayed_plugin_load(iface):
-    """Load the plugin after DuckDB is ready"""
-    from .qgis_plugin_gpq_downloader import QgisPluginGeoParquet
-    return QgisPluginGeoParquet(iface)
+# Instead of a standalone delayed_plugin_load, we now embed the real plugin loading logic
+# into our dummy plugin.
+class DummyPlugin:
+    def __init__(self, iface):
+        self.iface = iface
+        self.real_plugin = None
+
+    def initGui(self):
+        # Optionally show a temporary message or a "loading" placeholder
+        self.iface.messageBar().pushInfo("Info", "Plugin is loading… Please wait while dependencies install.")
+
+    def unload(self):
+        # Unload the real plugin if it has been loaded.
+        if self.real_plugin:
+            self.real_plugin.unload()
+
+    def loadRealPlugin(self):
+        from .qgis_plugin_gpq_downloader import QgisPluginGeoParquet
+        self.real_plugin = QgisPluginGeoParquet(self.iface)
+        # The real plugin adds the buttons and other UI elements
+        self.real_plugin.initGui()
+        self.iface.messageBar().pushSuccess("Success", "Plugin fully loaded with all functionalities")
+        print("Real plugin loaded and UI initialized.")
 
 def classFactory(iface):
     """Plugin entry point"""
@@ -177,15 +205,11 @@ def classFactory(iface):
         if path not in sys.path:
             sys.path.insert(0, path)
 
-    # Schedule the DuckDB check/installation for after QGIS finishes loading
-    QTimer.singleShot(0, lambda: ensure_duckdb(lambda: delayed_plugin_load(iface)))
-
-    # Return a dummy plugin that will be replaced when DuckDB is ready
-    class DummyPlugin:
-        def __init__(self, iface):
-            self.iface = iface
-        def initGui(self):
-            pass
-        def unload(self):
-            pass
-    return DummyPlugin(iface)
+    # Create the dummy plugin instance
+    dummy_plugin = DummyPlugin(iface)
+    
+    # Schedule DuckDB installation and, once complete, load the real plugin UI.
+    QTimer.singleShot(0, lambda: ensure_duckdb(dummy_plugin.loadRealPlugin))
+    
+    # Return the dummy plugin so QGIS has a valid plugin instance immediately
+    return dummy_plugin
