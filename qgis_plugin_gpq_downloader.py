@@ -116,6 +116,44 @@ class Worker(QObject):
         self.validation_results = validation_results
         self.killed = False
 
+    def get_bbox_info_from_metadata(self, conn):
+        """Read GeoParquet metadata to find bbox column info"""
+        self.progress.emit("Checking for bbox metadata...")
+        metadata_query = f"SELECT key, value FROM parquet_kv_metadata('{self.dataset_url}')"
+        metadata_results = conn.execute(metadata_query).fetchall()
+        
+        for key, value in metadata_results:
+            if key == b'geo':
+                try:
+                    decoded_value = value.decode()
+                    print("\nRaw metadata value:")
+                    print(decoded_value)
+                    
+                    # Parse JSON using DuckDB's JSON functions
+                    json_query = f"SELECT json_parse('{decoded_value}'::VARCHAR) as json"
+                    print("\nExecuting JSON query:")
+                    print(json_query)
+                    
+                    geo_metadata = conn.execute(json_query).fetchone()[0]
+                    print("\nParsed metadata:")
+                    print(geo_metadata)
+                    
+                    if geo_metadata and 'covering' in geo_metadata:
+                        print("\nFound covering:")
+                        print(geo_metadata['covering'])
+                        if 'bbox' in geo_metadata['covering']:
+                            bbox_info = geo_metadata['covering']['bbox']
+                            print("\nExtracted bbox info:")
+                            print(bbox_info)
+                            return bbox_info
+                except Exception as e:
+                    print(f"\nError parsing geo metadata: {str(e)}")
+                    print(f"Exception type: {type(e)}")
+                    import traceback
+                    print(traceback.format_exc())
+                    continue
+        return None
+
     def run(self):
         self.progress.emit("Connecting to database...")
         source_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
@@ -136,20 +174,16 @@ class Worker(QObject):
             conn.execute("LOAD httpfs;")
             conn.execute("LOAD spatial;")
 
+            # Get schema early as we need it for both column names and bbox check
+            schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
+            schema_result = conn.execute(schema_query).fetchall()
+            self.validation_results['schema'] = schema_result
+
             table_name = "download_data" # TODO: Better name, in line with user selected name
 
             self.progress.emit("Preparing query...")
             select_query = "SELECT *"
             if not self.output_file.endswith(".parquet"):
-                # Use schema from validation results instead of querying again
-                schema_result = self.validation_results.get('schema')
-                
-                if schema_result is None:
-                    # If no schema available, query it now
-                    schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
-                    schema_result = conn.execute(schema_query).fetchall()
-                    self.validation_results['schema'] = schema_result
-                
                 # Construct the SELECT clause with array conversion to strings
                 columns = []
                 for row in schema_result:
@@ -173,16 +207,17 @@ class Worker(QObject):
                     select_query = f'SELECT "names"."primary" as name,{", ".join(columns)}'
                 else:
                     select_query = f'SELECT {", ".join(columns)}'
-            # Construct WHERE clause based on presence of bbox (this code is not called now as validation ensures the bbox is there
-            # but leaving it here for now as we may want to support non-bbox / 1.0 queries in the future)
-            if self.validation_results.get('has_bbox', True):
+
+            # Construct WHERE clause based on bbox information
+            bbox_column = self.validation_results.get('bbox_column')
+            if bbox_column:
+                # Use the validated bbox column (either 'bbox' or from metadata)
                 where_clause = f"""
-                WHERE bbox.xmin BETWEEN {bbox.xMinimum()} AND {bbox.xMaximum()}
-                AND bbox.ymin BETWEEN {bbox.yMinimum()} AND {bbox.yMaximum()}
+                WHERE "{bbox_column}".xmin BETWEEN {bbox.xMinimum()} AND {bbox.xMaximum()}
+                AND "{bbox_column}".ymin BETWEEN {bbox.yMinimum()} AND {bbox.yMaximum()}
                 """
             else:
-                # Right now this will only work against epsg:4326 data - if we want to make it more robust
-                # then should try to transform. Or else tell users the BBOX in v1.1 is required...
+                # Fall back to ST_Intersects if no bbox column found
                 where_clause = f"""
                 WHERE ST_Intersects(
                     geometry,
@@ -278,26 +313,52 @@ class ValidationWorker(QObject):
         self.extent = extent
         self.killed = False
 
-    def needs_validation(self):
-        """Determine if the dataset needs any validation"""
-        # Check if URL matches any preset dataset
-        for source in PRESET_DATASETS.values():
-            for dataset in source.values():
-                if isinstance(dataset.get('url'), str) and dataset['url'] in self.dataset_url:
-                    return dataset.get('needs_validation', True)
-                elif isinstance(dataset.get('url_template'), str) and dataset['url_template'].split('{')[0] in self.dataset_url:
-                    return dataset.get('needs_validation', True)
+    def check_bbox_metadata(self, conn):
+        """Check for bbox information in GeoParquet metadata"""
+        metadata_query = f"SELECT key, value FROM parquet_kv_metadata('{self.dataset_url}')"
+        metadata_results = conn.execute(metadata_query).fetchall()
         
-        # All other datasets need validation
-        return True
+        for key, value in metadata_results:
+            if key == b'geo':
+                try:
+                    decoded_value = value.decode()
+                    print("\nRaw metadata value:")
+                    print(decoded_value)
+                    
+                    # Install and load JSON extension
+                    conn.execute("INSTALL json;")
+                    conn.execute("LOAD json;")
+                    
+                    # Create a table with the JSON string
+                    conn.execute(f"CREATE TEMP TABLE temp_json AS SELECT '{decoded_value}' as json_str")
+                    
+                    # Extract the bbox column name using JSON path
+                    # First get the geometry column info which contains the covering
+                    result = conn.execute("""
+                        SELECT json_str->'$.columns.geometry.covering.bbox.xmin[0]' as bbox_column
+                        FROM temp_json
+                    """).fetchone()
+                    
+                    print("\nExtracted bbox column name:")
+                    print(result[0] if result else None)
+                    
+                    if result and result[0]:
+                        # Remove quotes from the result if present
+                        bbox_col = result[0].strip('"')
+                        return bbox_col
+                        
+                except Exception as e:
+                    print(f"\nError parsing geo metadata: {str(e)}")
+                    print(f"Exception type: {type(e)}")
+                    import traceback
+                    print(traceback.format_exc())
+                finally:
+                    # Clean up temporary table
+                    conn.execute("DROP TABLE IF EXISTS temp_json")
+        return None
 
     def run(self):
         try:
-            validation_results = {
-                'has_bbox': True,
-                'schema': None
-            }
-            
             self.progress.emit("Connecting to data source...")
             conn = duckdb.connect()
             conn.execute("INSTALL spatial;")
@@ -306,7 +367,7 @@ class ValidationWorker(QObject):
             conn.execute("LOAD httpfs;")
             
             if not self.needs_validation():
-                self.finished.emit(True, "Validation successful", validation_results)
+                self.finished.emit(True, "Validation successful", {'has_bbox': True, 'bbox_column': 'bbox'})
                 return
             
             self.progress.emit("Checking data format...")
@@ -314,9 +375,22 @@ class ValidationWorker(QObject):
             schema_result = conn.execute(schema_query).fetchall()
             
             # Store schema and check for BBOX
-            validation_results['schema'] = schema_result
-            validation_results['has_bbox'] = any(row[0].lower() == 'bbox' and 'struct' in row[1].lower() 
-                                               for row in schema_result)
+            validation_results = {
+                'schema': schema_result,
+                'has_bbox': False,
+                'bbox_column': None
+            }
+            
+            # Check for standard bbox column first
+            if any(row[0].lower() == 'bbox' and 'struct' in row[1].lower() for row in schema_result):
+                validation_results['has_bbox'] = True
+                validation_results['bbox_column'] = 'bbox'
+            else:
+                # Check metadata for alternative bbox column
+                bbox_column = self.check_bbox_metadata(conn)
+                if bbox_column:
+                    validation_results['has_bbox'] = True
+                    validation_results['bbox_column'] = bbox_column
             
             if not validation_results['has_bbox']:
                 # Emit signal for main thread to show warning
@@ -329,6 +403,19 @@ class ValidationWorker(QObject):
             self.finished.emit(False, f"Error validating source: {str(e)}", {})
         finally:
             conn.close()
+
+    def needs_validation(self):
+        """Determine if the dataset needs any validation"""
+        # Check if URL matches any preset dataset
+        for source in PRESET_DATASETS.values():
+            for dataset in source.values():
+                if isinstance(dataset.get('url'), str) and dataset['url'] in self.dataset_url:
+                    return dataset.get('needs_validation', True)
+                elif isinstance(dataset.get('url_template'), str) and dataset['url_template'].split('{')[0] in self.dataset_url:
+                    return dataset.get('needs_validation', True)
+        
+        # All other datasets need validation
+        return True
 
 class DataSourceDialog(QDialog):
     validation_complete = pyqtSignal(bool, str, dict)
