@@ -31,7 +31,7 @@ lets you enter the URL of any GeoParquet file or partition.
 <img width="561" alt="Screenshot 2024-12-04 at 6 06 23 AM" src="https://github.com/user-attachments/assets/7866e0d6-f3eb-4390-bc70-09c931023f56">
 
 
-To use it move to an area where you'd like to download data and then select which layer you'd like to download. From there you can choose the output format (GeoParquet, GeoPackage or DuckDB) and the location to download the data to.
+To use it move to an area where you'd like to download data and then select which layer you'd like to download. From there you can choose the output format (GeoParquet, GeoPackage, DuckDB or FlatGeobuf) and the location to download the data to.
 
 Downloads can sometimes take awhile, especially if the data provider hasn't optimized their GeoParquet files very well, or if you're downloading an area with a lot of data. Overture generally works the fastest for now, others may take a minute or two. But it should most always be faster than trying to figure out exactly which files you need and downloading them manually.
 

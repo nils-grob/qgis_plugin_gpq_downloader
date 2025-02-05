@@ -231,6 +231,8 @@ class Worker(QObject):
                     format_options = "(FORMAT 'parquet', COMPRESSION 'ZSTD');"
                 elif self.output_file.endswith(".gpkg"):
                     format_options = "(FORMAT GDAL, DRIVER 'GPKG');"
+                elif self.output_file.endswith(".fgb"):
+                    format_options = "(FORMAT GDAL, DRIVER 'FlatGeobuf');"
                 else:
                     self.error.emit("Unsupported file format.")
                 
@@ -756,7 +758,7 @@ class QgisPluginGeoParquet:
                 self.iface.mainWindow(),
                 "Save Data",
                 default_save_path,
-                "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg)"
+                "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg);;FlatGeobuf (*.fgb)"
             )
 
             if output_file:
