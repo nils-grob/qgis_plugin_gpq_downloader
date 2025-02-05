@@ -232,7 +232,7 @@ class Worker(QObject):
                 elif self.output_file.endswith(".gpkg"):
                     format_options = "(FORMAT GDAL, DRIVER 'GPKG');"
                 elif self.output_file.endswith(".fgb"):
-                    format_options = "(FORMAT GDAL, DRIVER 'FlatGeobuf');"
+                    format_options = "(FORMAT GDAL, DRIVER 'FlatGeobuf', SRS 'EPSG:4326');"
                 else:
                     self.error.emit("Unsupported file format.")
                 
