@@ -350,17 +350,17 @@ class DataSourceDialog(QDialog):
         radio_layout = QHBoxLayout()
         
         # Create radio buttons
-        self.custom_radio = QRadioButton("Custom URL")
         self.overture_radio = QRadioButton("Overture Maps")
         self.sourcecoop_radio = QRadioButton("Source Cooperative")
         self.other_radio = QRadioButton("Hugging Face")
-        
+        self.custom_radio = QRadioButton("Custom URL")
+
         # Add radio buttons to horizontal layout
-        radio_layout.addWidget(self.custom_radio)
         radio_layout.addWidget(self.overture_radio)
         radio_layout.addWidget(self.sourcecoop_radio)
         radio_layout.addWidget(self.other_radio)
-        
+        radio_layout.addWidget(self.custom_radio)
+
         # Add radio button layout to main layout
         layout.addLayout(radio_layout)
         
@@ -674,46 +674,19 @@ class QgisPluginGeoParquet:
         self.action.setToolTip("Download GeoParquet Data")
         self.action.triggered.connect(self.run)
 
-        # Create the Overture action
-        overture_icon_path = ':/qgis_plugin_gpq_downloader/icons/overture-logo.svg'
-        self.overture_action = QAction(
-            QIcon(overture_icon_path),
-            "Download Overture Data", 
-            self.iface.mainWindow()
-        )
-        self.overture_action.setToolTip("Download Overture Maps Data")
-        self.overture_action.triggered.connect(lambda: self.run(default_source='overture'))
-
-        # Create the Source Cooperative action
-        sourcecoop_icon_path = ':/qgis_plugin_gpq_downloader/icons/source-coop.svg'
-        self.sourcecoop_action = QAction(
-            QIcon(sourcecoop_icon_path),
-            "Download Source Cooperative Data", 
-            self.iface.mainWindow()
-        )
-        self.sourcecoop_action.setToolTip("Download Source Cooperative Data")
-        self.sourcecoop_action.triggered.connect(lambda: self.run(default_source='sourcecoop'))
-
         # Add the actions to the toolbar
         self.iface.addToolBarIcon(self.action)
-        self.iface.addToolBarIcon(self.overture_action)
-        self.iface.addToolBarIcon(self.sourcecoop_action)
 
     def unload(self):
         # Clean up worker and thread when plugin is unloaded
         self.cleanup_thread()
         # Remove all actions from the toolbar
         self.iface.removeToolBarIcon(self.action)
-        self.iface.removeToolBarIcon(self.overture_action)
-        self.iface.removeToolBarIcon(self.sourcecoop_action)
 
     def run(self, default_source=None):
         dialog = DataSourceDialog(self.iface.mainWindow(), self.iface)
-        
-        if default_source == 'overture':
-            dialog.overture_radio.setChecked(True)
-        elif default_source == 'sourcecoop':
-            dialog.sourcecoop_radio.setChecked(True)
+
+        dialog.overture_radio.setChecked(True)
         
         # Connect validation complete signal to handle the result
         dialog.validation_complete.connect(
