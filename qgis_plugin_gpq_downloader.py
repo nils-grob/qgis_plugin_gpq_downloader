@@ -277,7 +277,7 @@ class Worker(QObject):
                 elif self.output_file.endswith(".geojson"):
                     format_options = "(FORMAT GDAL, DRIVER 'GeoJSON');"
                 elif self.output_file.endswith(".shp"):
-                    format_options = "(FORMAT GDAL, DRIVER 'ESRI Shapefile');"
+                    format_options = "(FORMAT GDAL, DRIVER 'ESRI Shapefile', SRS 'EPSG:4326');"
                 else:
                     self.error.emit("Unsupported file format.")
                 
