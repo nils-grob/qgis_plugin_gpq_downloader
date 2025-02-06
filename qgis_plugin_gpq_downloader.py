@@ -274,9 +274,14 @@ class Worker(QObject):
                     format_options = "(FORMAT GDAL, DRIVER 'GPKG');"
                 elif self.output_file.endswith(".fgb"):
                     format_options = "(FORMAT GDAL, DRIVER 'FlatGeobuf', SRS 'EPSG:4326');"
+                elif self.output_file.endswith(".geojson"):
+                    format_options = "(FORMAT GDAL, DRIVER 'GeoJSON');"
+                elif self.output_file.endswith(".shp"):
+                    format_options = "(FORMAT GDAL, DRIVER 'ESRI Shapefile');"
                 else:
                     self.error.emit("Unsupported file format.")
                 
+
                 print("Executing SQL query:")
                 print(copy_query + format_options)
                 conn.execute(copy_query + format_options)
@@ -824,7 +829,7 @@ class QgisPluginGeoParquet:
                 self.iface.mainWindow(),
                 "Save Data",
                 default_save_path,
-                "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg);;FlatGeobuf (*.fgb)"
+                "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg);;FlatGeobuf (*.fgb);;GeoJSON (*.geojson);;Shapefile (*.shp)"
             )
 
             if output_file:

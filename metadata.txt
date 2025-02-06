@@ -11,7 +11,7 @@ description=This plugin connects to cloud-based GeoParquet data and downloads th
     of any online GeoParquet file or partition. It works best with 
     the bbox struct from GeoParquet 1.1, but any GeoParquet file 
     will work. You can save the output data as GeoParquet, 
-    GeoPackage, DuckDB, or FlatGeobuf.
+    GeoPackage, DuckDB, FlatGeobuf, GeoJSON, or Shapefile.
 
     The plugin does not require that your QGIS supports 
     GeoParquet, as you can download data as GeoPackage, but 
