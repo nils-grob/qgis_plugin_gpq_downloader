@@ -278,10 +278,16 @@ class Worker(QObject):
                         avg_row_size = conn.execute(f"SELECT AVG(json_length) FROM ({sample_query})").fetchone()[0]
                         estimated_size_mb = (row_count * avg_row_size) / (1024 * 1024)  # Convert to MB
                         
+                        # Format size message
+                        if estimated_size_mb >= 1024:  # If size is 1GB or larger
+                            size_str = f"{estimated_size_mb/1024:.1f}GB"
+                        else:
+                            size_str = f"{estimated_size_mb:.1f}MB"
+                        
                         if estimated_size_mb > 6144:  # Warning threshold: 6GB (6 * 1024 MB)
                             # Ask user if they want to continue
                             self.info.emit(
-                                f"Warning: The estimated GeoJSON file size is {estimated_size_mb:.1f}MB. "
+                                f"Warning: The estimated GeoJSON file size is {size_str}. "
                                 "Large GeoJSON files can be slow to process and load. "
                                 "Consider using GeoParquet or GeoPackage format instead.\n\n"
                                 "Do you want to continue with GeoJSON export?"
