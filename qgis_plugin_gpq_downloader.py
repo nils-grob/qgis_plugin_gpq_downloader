@@ -278,7 +278,7 @@ class Worker(QObject):
                         avg_row_size = conn.execute(f"SELECT AVG(json_length) FROM ({sample_query})").fetchone()[0]
                         estimated_size_mb = (row_count * avg_row_size) / (1024 * 1024)  # Convert to MB
                         
-                        if estimated_size_mb > 500:  # Warning threshold: 500MB
+                        if estimated_size_mb > 6144:  # Warning threshold: 6GB (6 * 1024 MB)
                             # Ask user if they want to continue
                             self.info.emit(
                                 f"Warning: The estimated GeoJSON file size is {estimated_size_mb:.1f}MB. "
