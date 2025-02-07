@@ -121,6 +121,7 @@ class Worker(QObject):
         self.iface = iface
         self.validation_results = validation_results
         self.killed = False
+        self.size_warning_accepted = False
 
     def get_bbox_info_from_metadata(self, conn):
         """Read GeoParquet metadata to find bbox column info"""
@@ -266,6 +267,28 @@ class Worker(QObject):
                         "Note: QGIS does not currently support loading DuckDB files directly."
                     )
             else:
+                # Check size if exporting to GeoJSON
+                if self.output_file.lower().endswith('.geojson') and not self.size_warning_accepted:
+                    # Estimate size using row count and average row size
+                    row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+                    # Get a sample of the data to estimate size
+                    sample_size = min(1000, row_count)
+                    if sample_size > 0:
+                        sample_query = f"SELECT length(TO_JSON(t)::VARCHAR) as json_length FROM (SELECT * FROM {table_name} LIMIT {sample_size}) t"
+                        avg_row_size = conn.execute(f"SELECT AVG(json_length) FROM ({sample_query})").fetchone()[0]
+                        estimated_size_mb = (row_count * avg_row_size) / (1024 * 1024)  # Convert to MB
+                        
+                        if estimated_size_mb > 500:  # Warning threshold: 500MB
+                            # Ask user if they want to continue
+                            self.info.emit(
+                                f"Warning: The estimated GeoJSON file size is {estimated_size_mb:.1f}MB. "
+                                "Large GeoJSON files can be slow to process and load. "
+                                "Consider using GeoParquet or GeoPackage format instead.\n\n"
+                                "Do you want to continue with GeoJSON export?"
+                            )
+                            # Wait for user response
+                            return
+
                 copy_query = f"COPY {table_name} TO '{self.output_file}'"
 
                 if file_extension == "parquet":
@@ -276,8 +299,6 @@ class Worker(QObject):
                     format_options = "(FORMAT GDAL, DRIVER 'FlatGeobuf', SRS 'EPSG:4326');"
                 elif self.output_file.endswith(".geojson"):
                     format_options = "(FORMAT GDAL, DRIVER 'GeoJSON');"
-                elif self.output_file.endswith(".shp"):
-                    format_options = "(FORMAT GDAL, DRIVER 'ESRI Shapefile', SRS 'EPSG:4326');"
                 else:
                     self.error.emit("Unsupported file format.")
                 
@@ -829,7 +850,7 @@ class QgisPluginGeoParquet:
                 self.iface.mainWindow(),
                 "Save Data",
                 default_save_path,
-                "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg);;FlatGeobuf (*.fgb);;GeoJSON (*.geojson);;Shapefile (*.shp)"
+                "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg);;FlatGeobuf (*.fgb);;GeoJSON (*.geojson)"
             )
 
             if output_file:
@@ -935,7 +956,24 @@ class QgisPluginGeoParquet:
 
     def show_info(self, message):
         """Show an information message to the user"""
-        QMessageBox.information(self.iface.mainWindow(), "Success", message)
+        if "Warning: The estimated GeoJSON file size" in message:
+            reply = QMessageBox.warning(
+                self.iface.mainWindow(),
+                "Large File Warning",
+                message,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                # Set flag to skip size check on next run
+                self.worker.size_warning_accepted = True
+                # Resume the download with GeoJSON format
+                self.worker.run()
+            else:
+                # Cancel the download
+                self.cleanup_thread()
+        else:
+            QMessageBox.information(self.iface.mainWindow(), "Success", message)
 
 def classFactory(iface):
     return QgisPluginGeoParquet(iface)
