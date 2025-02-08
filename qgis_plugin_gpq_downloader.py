@@ -252,8 +252,7 @@ class Worker(QObject):
                 # Add check for empty results
                 row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
                 if row_count == 0:
-                    # Instead of emitting error and returning, emit info and finish
-                    self.info.emit(f"No data found in the requested area for {self.dataset_url}. Skipping to next dataset if available.")
+                    self.info.emit("No data found in the requested area. Check that your map extent overlaps with the data and/or expand your map extent. Skipping to next dataset if available.")
                     self.finished.emit()
                     return
 
