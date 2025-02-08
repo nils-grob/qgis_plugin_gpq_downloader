@@ -387,13 +387,14 @@ class ValidationWorker(QObject):
             conn.execute("INSTALL httpfs;")
             conn.execute("LOAD httpfs;")
             
-            if not self.needs_validation():
-                self.finished.emit(True, "Validation successful", {'has_bbox': True, 'bbox_column': 'bbox'})
-                return
-            
             self.progress.emit("Checking data format...")
-            schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
-            schema_result = conn.execute(schema_query).fetchall()
+            try:
+                # Try to read the schema to verify it's a valid parquet file
+                schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
+                schema_result = conn.execute(schema_query).fetchall()
+            except Exception as e:
+                self.finished.emit(False, "Could not read the parquet file. Please check the URL and try again.", {})
+                return
             
             # Store schema and check for BBOX
             validation_results = {
@@ -417,6 +418,30 @@ class ValidationWorker(QObject):
                 # Emit signal for main thread to show warning
                 self.needs_bbox_warning.emit()
                 return
+
+            # Try to verify data exists in the area
+            self.progress.emit("Checking for data in the area...")
+            try:
+                where_clause = ""
+                if validation_results['bbox_column']:
+                    bbox = transform_bbox_to_4326(self.extent, self.iface.mapCanvas().mapSettings().destinationCrs())
+                    where_clause = f"""
+                    WHERE "{validation_results['bbox_column']}".xmin BETWEEN {bbox.xMinimum()} AND {bbox.xMaximum()}
+                    AND "{validation_results['bbox_column']}".ymin BETWEEN {bbox.yMinimum()} AND {bbox.yMaximum()}
+                    """
+                
+                test_query = f"""
+                SELECT COUNT(*) FROM read_parquet('{self.dataset_url}')
+                {where_clause}
+                LIMIT 1
+                """
+                result = conn.execute(test_query).fetchone()
+                if result[0] == 0:
+                    self.finished.emit(False, "No data found in the requested area. Check that your map extent overlaps with the data and/or expand your map extent.", {})
+                    return
+            except Exception as e:
+                # If the query fails, continue anyway as the file might be valid but structured differently
+                pass
 
             self.finished.emit(True, "Validation successful", validation_results)
 
@@ -655,7 +680,7 @@ class DataSourceDialog(QDialog):
             self.accept()
             return
         
-        # For custom URLs, do basic validation
+        # For custom URLs, do validation
         if self.custom_radio.isChecked():
             for url in urls:
                 if not (url.startswith('http://') or url.startswith('https://') or 
@@ -663,10 +688,47 @@ class DataSourceDialog(QDialog):
                     QMessageBox.warning(self, "Validation Error", 
                         "URL must start with http://, https://, s3://, hf://, or file://")
                     return
+            
+                # Create progress dialog for validation
+                progress_dialog = QProgressDialog("Validating URL...", "Cancel", 0, 0, self)
+                progress_dialog.setWindowModality(Qt.WindowModal)
+                
+                # Create validation worker
+                self.validation_worker = ValidationWorker(url, self.iface, self.iface.mapCanvas().extent())
+                self.validation_thread = QThread()
+                self.validation_worker.moveToThread(self.validation_thread)
+                
+                # Connect signals
+                self.validation_thread.started.connect(self.validation_worker.run)
+                self.validation_worker.progress.connect(progress_dialog.setLabelText)
+                self.validation_worker.finished.connect(
+                    lambda success, message, results: self.handle_validation_result(
+                        success, message, results, progress_dialog, urls
+                    )
+                )
+                self.validation_worker.needs_bbox_warning.connect(self.show_bbox_warning)
+                
+                # Start validation
+                self.validation_thread.start()
+                progress_dialog.exec_()
+                return
         
-        # Store the URLs for later use
+        # For other preset sources, we can skip validation
         self.selected_urls = urls
         self.accept()
+
+    def handle_validation_result(self, success, message, results, progress_dialog, urls):
+        """Handle the validation result"""
+        progress_dialog.close()
+        self.validation_thread.quit()
+        self.validation_thread.wait()
+        
+        if success:
+            self.selected_urls = urls
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Validation Error", 
+                "Could not validate the URL. Please check that the URL points to a valid GeoParquet file and try again.")
 
     def get_urls(self):
         """Returns a list of URLs for selected datasets"""
