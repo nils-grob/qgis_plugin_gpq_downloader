@@ -209,8 +209,9 @@ class Worker(QObject):
                         else:
                             columns.append(quoted_col_name)
 
-                    # When we support more than overture just select the primary name when it's o
-                    if 'overture' in self.dataset_url:
+                    # Check if this is Overture data and has a names column
+                    has_names_column = any('names' in row[0] for row in schema_result)
+                    if 'overture' in self.dataset_url and has_names_column:
                         select_query = f'SELECT "names"."primary" as name,{", ".join(columns)}'
                     else:
                         select_query = f'SELECT {", ".join(columns)}'
@@ -798,7 +799,7 @@ class QgisPluginGeoParquet:
                 # Get current date for filename
                 current_date = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
                 
-                # Generate filename based on the URL
+                # Generate filename based on the URL and source type
                 if dialog.overture_radio.isChecked():
                     # Extract theme from URL
                     theme = url.split('theme=')[1].split('/')[0]
@@ -811,7 +812,20 @@ class QgisPluginGeoParquet:
                             filename = f"overture_{theme}_{current_date}.parquet"
                     else:
                         filename = f"overture_{theme}_{current_date}.parquet"
+                elif dialog.sourcecoop_radio.isChecked():
+                    # Get the selected dataset name from the combo box
+                    dataset_name = dialog.sourcecoop_combo.currentText()
+                    # Convert to snake case and clean up the name
+                    clean_name = dataset_name.lower().replace(' ', '_').replace('/', '_').replace('(', '').replace(')', '')
+                    filename = f"sourcecoop_{clean_name}_{current_date}.parquet"
+                elif dialog.other_radio.isChecked():
+                    # Get the selected dataset name from the combo box
+                    dataset_name = dialog.other_combo.currentText()
+                    # Convert to snake case and clean up the name
+                    clean_name = dataset_name.lower().replace(' ', '_').replace('/', '_')
+                    filename = f"other_{clean_name}_{current_date}.parquet"
                 else:
+                    # Custom URL case
                     filename = f"custom_download_{current_date}.parquet"
 
                 default_save_path = str(self.download_dir / filename)
