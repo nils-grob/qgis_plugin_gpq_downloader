@@ -161,150 +161,163 @@ class Worker(QObject):
         return None
 
     def run(self):
-        self.progress.emit("Connecting to database...")
-        source_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
-        bbox = transform_bbox_to_4326(self.extent, source_crs)
-
-        conn = duckdb.connect()
         try:
-            # Install and load the spatial extension
-            self.progress.emit("Loading spatial extension...")
+            self.progress.emit("Connecting to database...")
+            source_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
+            bbox = transform_bbox_to_4326(self.extent, source_crs)
 
-            if self.output_file.lower().endswith('.duckdb'):
-                conn = duckdb.connect(self.output_file)  # Connect directly to output file
-            else:
-                conn = duckdb.connect() 
+            conn = duckdb.connect()
+            try:
+                # Install and load the spatial extension
+                self.progress.emit("Loading spatial extension...")
 
-            conn.execute("INSTALL httpfs;")
-            conn.execute("INSTALL spatial;")
-            conn.execute("LOAD httpfs;")
-            conn.execute("LOAD spatial;")
-
-            # Get schema early as we need it for both column names and bbox check
-            schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
-            schema_result = conn.execute(schema_query).fetchall()
-            self.validation_results['schema'] = schema_result
-
-            table_name = "download_data" # TODO: Better name, in line with user selected name
-
-            self.progress.emit("Preparing query...")
-            select_query = "SELECT *"
-            if not self.output_file.endswith(".parquet"):
-                # Construct the SELECT clause with array conversion to strings
-                columns = []
-                for row in schema_result:
-                    col_name = row[0]
-                    col_type = row[1]
-                    
-                    # Quote the column name to handle special characters
-                    quoted_col_name = f'"{col_name}"'
-                    
-                    if 'STRUCT' in col_type.upper() or 'MAP' in col_type.upper():
-                        columns.append(f"TO_JSON({quoted_col_name}) AS {quoted_col_name}")
-                    elif '[]' in col_type:  # Check for array types like VARCHAR[]
-                        columns.append(f"array_to_string({quoted_col_name}, ', ') AS {quoted_col_name}")
-                    elif col_type.upper() == 'UTINYINT':
-                        columns.append(f"CAST({quoted_col_name} AS INTEGER) AS {quoted_col_name}")
-                    else:
-                        columns.append(quoted_col_name)
-
-                # When we support more than overture just select the primary name when it's o
-                if 'overture' in self.dataset_url:
-                    select_query = f'SELECT "names"."primary" as name,{", ".join(columns)}'
+                if self.output_file.lower().endswith('.duckdb'):
+                    conn = duckdb.connect(self.output_file)  # Connect directly to output file
                 else:
-                    select_query = f'SELECT {", ".join(columns)}'
+                    conn = duckdb.connect() 
 
-            # Construct WHERE clause based on bbox information
-            bbox_column = self.validation_results.get('bbox_column')
-            if bbox_column:
-                # Use the validated bbox column (either 'bbox' or from metadata)
-                where_clause = f"""
-                WHERE "{bbox_column}".xmin BETWEEN {bbox.xMinimum()} AND {bbox.xMaximum()}
-                AND "{bbox_column}".ymin BETWEEN {bbox.yMinimum()} AND {bbox.yMaximum()}
-                """
-            else:
-                # Fall back to ST_Intersects if no bbox column found
-                where_clause = f"""
-                WHERE ST_Intersects(
-                    geometry,
-                    ST_GeomFromText('POLYGON(({bbox.xMinimum()} {bbox.yMinimum()},
+                conn.execute("INSTALL httpfs;")
+                conn.execute("INSTALL spatial;")
+                conn.execute("LOAD httpfs;")
+                conn.execute("LOAD spatial;")
+
+                # Get schema early as we need it for both column names and bbox check
+                schema_query = f"DESCRIBE SELECT * FROM read_parquet('{self.dataset_url}')"
+                schema_result = conn.execute(schema_query).fetchall()
+                self.validation_results['schema'] = schema_result
+
+                table_name = "download_data"
+
+                self.progress.emit("Preparing query...")
+                select_query = "SELECT *"
+                if not self.output_file.endswith(".parquet"):
+                    # Construct the SELECT clause with array conversion to strings
+                    columns = []
+                    for row in schema_result:
+                        col_name = row[0]
+                        col_type = row[1]
+                        
+                        # Quote the column name to handle special characters
+                        quoted_col_name = f'"{col_name}"'
+                        
+                        if 'STRUCT' in col_type.upper() or 'MAP' in col_type.upper():
+                            columns.append(f"TO_JSON({quoted_col_name}) AS {quoted_col_name}")
+                        elif '[]' in col_type:  # Check for array types like VARCHAR[]
+                            columns.append(f"array_to_string({quoted_col_name}, ', ') AS {quoted_col_name}")
+                        elif col_type.upper() == 'UTINYINT':
+                            columns.append(f"CAST({quoted_col_name} AS INTEGER) AS {quoted_col_name}")
+                        else:
+                            columns.append(quoted_col_name)
+
+                    # When we support more than overture just select the primary name when it's o
+                    if 'overture' in self.dataset_url:
+                        select_query = f'SELECT "names"."primary" as name,{", ".join(columns)}'
+                    else:
+                        select_query = f'SELECT {", ".join(columns)}'
+
+                # Construct WHERE clause based on bbox information
+                bbox_column = self.validation_results.get('bbox_column')
+                if bbox_column:
+                    # Use the validated bbox column (either 'bbox' or from metadata)
+                    where_clause = f"""
+                    WHERE "{bbox_column}".xmin BETWEEN {bbox.xMinimum()} AND {bbox.xMaximum()}
+                    AND "{bbox_column}".ymin BETWEEN {bbox.yMinimum()} AND {bbox.yMaximum()}
+                    """
+                else:
+                    # Fall back to ST_Intersects if no bbox column found
+                    where_clause = f"""
+                    WHERE ST_Intersects(
+                        geometry,
+                        ST_GeomFromText('POLYGON(({bbox.xMinimum()} {bbox.yMinimum()},
                                             {bbox.xMaximum()} {bbox.yMinimum()},
                                             {bbox.xMaximum()} {bbox.yMaximum()},
                                             {bbox.xMinimum()} {bbox.yMaximum()},
                                             {bbox.xMinimum()} {bbox.yMinimum()}))')
-                )
+                    )
+                    """
+
+                # Base query
+                base_query = f"""
+                CREATE TABLE {table_name} AS (
+                    {select_query} FROM read_parquet('{self.dataset_url}')
+                    {where_clause}
+                ) 
                 """
-
-            # Base query
-            base_query = f"""
-            CREATE TABLE {table_name} AS (
-                {select_query} FROM read_parquet('{self.dataset_url}')
-                {where_clause}
-            ) 
-            """
-            self.progress.emit("Downloading data...")
-            print("Executing SQL query:")
-            print(base_query)
-            conn.execute(base_query)
-            
-            # Add check for empty results
-            row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-            if row_count == 0:
-                self.error.emit("No data found in the requested area. Check that your map extent overlaps with the data and/or expand your map extent.")
-                return
-
-            self.progress.emit("Processing data to requested format...")
-
-            file_extension = self.output_file.lower().split('.')[-1]
-
-            if file_extension == 'duckdb':
-                # Commit the transaction to ensure the data is saved
-                conn.commit()
-                if not self.killed:
-                    self.info.emit(
-                        "Data has been successfully saved to DuckDB database.\n\n"
-                        "Note: QGIS does not currently support loading DuckDB files directly."
-                    )
-            else:
-                copy_query = f"COPY {table_name} TO '{self.output_file}'"
-
-                if file_extension == "parquet":
-                    format_options = "(FORMAT 'parquet', COMPRESSION 'ZSTD');"
-                elif self.output_file.endswith(".gpkg"):
-                    format_options = "(FORMAT GDAL, DRIVER 'GPKG');"
-                elif self.output_file.endswith(".fgb"):
-                    format_options = "(FORMAT GDAL, DRIVER 'FlatGeobuf', SRS 'EPSG:4326');"
-                else:
-                    self.error.emit("Unsupported file format.")
-                
+                self.progress.emit("Downloading data...")
                 print("Executing SQL query:")
-                print(copy_query + format_options)
-                conn.execute(copy_query + format_options)
+                print(base_query)
+                conn.execute(base_query)
+                
+                # Add check for empty results
+                row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+                if row_count == 0:
+                    # Instead of emitting error and returning, emit info and finish
+                    self.info.emit(f"No data found in the requested area for {self.dataset_url}. Skipping to next dataset if available.")
+                    self.finished.emit()
+                    return
 
-            
-            if self.killed:
-                return
+                self.progress.emit("Processing data to requested format...")
 
-            if not self.killed:
-                if self.output_file.lower().endswith('.duckdb'):
-                    self.info.emit(
-                        "Data has been successfully saved to DuckDB database.\n\n"
-                        "Note: QGIS does not currently support loading DuckDB files directly."
-                    )
+                file_extension = self.output_file.lower().split('.')[-1]
+
+                if file_extension == 'duckdb':
+                    # Commit the transaction to ensure the data is saved
+                    conn.commit()
+                    if not self.killed:
+                        self.info.emit(
+                            "Data has been successfully saved to DuckDB database.\n\n"
+                            "Note: QGIS does not currently support loading DuckDB files directly."
+                        )
                 else:
-                    self.load_layer.emit(self.output_file)
-                self.finished.emit()
+                    copy_query = f"COPY {table_name} TO '{self.output_file}'"
+
+                    if file_extension == "parquet":
+                        format_options = "(FORMAT 'parquet', COMPRESSION 'ZSTD');"
+                    elif self.output_file.endswith(".gpkg"):
+                        format_options = "(FORMAT GDAL, DRIVER 'GPKG');"
+                    elif self.output_file.endswith(".fgb"):
+                        format_options = "(FORMAT GDAL, DRIVER 'FlatGeobuf', SRS 'EPSG:4326');"
+                    else:
+                        self.error.emit("Unsupported file format.")
+                    
+                    print("Executing SQL query:")
+                    print(copy_query + format_options)
+                    conn.execute(copy_query + format_options)
+
+                
+                if self.killed:
+                    return
+
+                if not self.killed:
+                    if self.output_file.lower().endswith('.duckdb'):
+                        self.info.emit(
+                            "Data has been successfully saved to DuckDB database.\n\n"
+                            "Note: QGIS does not currently support loading DuckDB files directly."
+                        )
+                    else:
+                        self.load_layer.emit(self.output_file)
+                    self.finished.emit()
+
+            except Exception as e:
+                if not self.killed:
+                    # Change error to info if it's a "no data" error
+                    error_str = str(e)
+                    if "No data found" in error_str:
+                        self.info.emit(f"No data found in the requested area for {self.dataset_url}. Skipping to next dataset if available.")
+                        self.finished.emit()
+                    else:
+                        self.error.emit(error_str)
+            finally:
+                if not self.output_file.lower().endswith('.duckdb'): # Clean up temporary table
+                    try:
+                        conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+                    except:
+                        pass
+                conn.close()
 
         except Exception as e:
             if not self.killed:
                 self.error.emit(str(e))
-        finally:
-            if not self.output_file.lower().endswith('.duckdb'): # Clean up temporary table
-                try:
-                    conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-                except:
-                    pass
-            conn.close()
 
     def kill(self):
         self.killed = True
@@ -789,9 +802,13 @@ class QgisPluginGeoParquet:
                 if dialog.overture_radio.isChecked():
                     # Extract theme from URL
                     theme = url.split('theme=')[1].split('/')[0]
-                    if 'type=' in url:  # For base layers
-                        subtype = url.split('type=')[1].split('/')[0]
-                        filename = f"overture_base_{subtype}_{current_date}.parquet"
+                    if 'type=' in url:
+                        type_str = url.split('type=')[1].split('/')[0]
+                        if theme == 'base':
+                            filename = f"overture_base_{type_str}_{current_date}.parquet"
+                        else:
+                            # Use theme name directly for other types
+                            filename = f"overture_{theme}_{current_date}.parquet"
                     else:
                         filename = f"overture_{theme}_{current_date}.parquet"
                 else:
