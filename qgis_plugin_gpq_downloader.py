@@ -976,8 +976,67 @@ class QgisPluginGeoParquet:
                 # Resume the download with GeoJSON format
                 self.worker.run()
             else:
-                # Cancel the download
-                self.cleanup_thread()
+                # Show dialog to choose different format
+                alt_format_dialog = QDialog(self.iface.mainWindow())
+                alt_format_dialog.setWindowTitle("Choose Alternative Format")
+                layout = QVBoxLayout()
+                
+                msg = QLabel(
+                    "Would you like to save the data in a different format instead? "
+                    "These formats are more efficient for large datasets:"
+                )
+                msg.setWordWrap(True)
+                layout.addWidget(msg)
+                
+                # Create format selection combo box
+                format_combo = QComboBox()
+                format_combo.addItems([
+                    "GeoParquet (*.parquet)",
+                    "GeoPackage (*.gpkg)",
+                    "FlatGeobuf (*.fgb)",
+                    "DuckDB Database (*.duckdb)"
+                ])
+                layout.addWidget(format_combo)
+                
+                # Create button box
+                button_box = QHBoxLayout()
+                save_button = QPushButton("Save As")
+                cancel_button = QPushButton("Cancel")
+                button_box.addWidget(save_button)
+                button_box.addWidget(cancel_button)
+                layout.addLayout(button_box)
+                
+                alt_format_dialog.setLayout(layout)
+                
+                # Connect buttons
+                cancel_button.clicked.connect(alt_format_dialog.reject)
+                save_button.clicked.connect(alt_format_dialog.accept)
+                
+                if alt_format_dialog.exec_() == QDialog.Accepted:
+                    # Get selected format extension
+                    selected_format = format_combo.currentText()
+                    extension = selected_format.split("*")[1].rstrip(")")
+                    
+                    # Update output file path with new extension
+                    new_output_file = os.path.splitext(self.output_file)[0] + extension
+                    
+                    # Show save file dialog with new format
+                    output_file, _ = QFileDialog.getSaveFileName(
+                        self.iface.mainWindow(),
+                        "Save Data",
+                        new_output_file,
+                        selected_format
+                    )
+                    
+                    if output_file:
+                        # Update output file and restart worker
+                        self.output_file = output_file
+                        self.worker.output_file = output_file
+                        self.worker.run()
+                    else:
+                        self.cleanup_thread()
+                else:
+                    self.cleanup_thread()
         else:
             QMessageBox.information(self.iface.mainWindow(), "Success", message)
 
