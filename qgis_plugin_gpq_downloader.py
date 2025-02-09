@@ -8,7 +8,7 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtCore import pyqtSignal, QObject, Qt, QThread
 from qgis.core import (
     QgsProject, QgsRectangle, QgsVectorLayer, 
-    QgsCoordinateReferenceSystem, QgsCoordinateTransform
+    QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsSettings
 )
 import os
 import datetime
@@ -456,6 +456,12 @@ class DataSourceDialog(QDialog):
         radio_layout.addWidget(self.other_radio)
         radio_layout.addWidget(self.custom_radio)
 
+        # Connect to save state
+        self.overture_radio.released.connect(self.save_radio_button_state)
+        self.sourcecoop_radio.released.connect(self.save_radio_button_state)
+        self.other_radio.released.connect(self.save_radio_button_state)
+        self.custom_radio.released.connect(self.save_radio_button_state)
+
         # Add radio button layout to main layout
         layout.addLayout(radio_layout)
         
@@ -577,11 +583,27 @@ class DataSourceDialog(QDialog):
         self.ok_button.clicked.connect(self.validate_and_accept)
         self.cancel_button.clicked.connect(self.reject)
         
-        # Set initial state
-        self.custom_radio.setChecked(True)
-        
         # Add after setting up the sourcecoop_combo
         self.update_sourcecoop_link(self.sourcecoop_combo.currentText())
+
+    def save_radio_button_state(self) -> None:
+        if self.custom_radio.isChecked():
+            button_name = self.custom_radio.text()
+        elif self.overture_radio.isChecked():
+            button_name = self.overture_radio.text()
+        elif self.sourcecoop_radio.isChecked():
+            button_name = self.sourcecoop_radio.text()
+        elif self.other_radio.isChecked():
+            button_name = self.other_radio.text()
+        elif self.custom_radio.isChecked():
+            button_name = self.custom_radio.text()
+
+        QgsSettings().setValue(
+            "gpq_downloader/radio_selection",
+            button_name,
+            section=QgsSettings.Plugins,
+        )
+
         
     def handle_overture_selection(self, text):
         """Show/hide base subtype combo based on selection"""
@@ -781,7 +803,13 @@ class QgisPluginGeoParquet:
     def run(self, default_source=None):
         dialog = DataSourceDialog(self.iface.mainWindow(), self.iface)
 
-        dialog.overture_radio.setChecked(True)
+
+        selected_name = QgsSettings().value("gpq_downloader/radio_selection", section=QgsSettings.Plugins)
+        for button in [dialog.overture_radio, dialog.sourcecoop_radio, dialog.other_radio, dialog.custom_radio]:
+            if button.text() == selected_name:
+                button.setChecked(True)
+        if not selected_name:
+            dialog.overture_radio.setChecked(True)
         
         # Connect validation complete signal to handle the result
         dialog.validation_complete.connect(
