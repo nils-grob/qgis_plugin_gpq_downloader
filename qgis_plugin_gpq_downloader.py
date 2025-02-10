@@ -276,7 +276,7 @@ class Worker(QObject):
                 # Check size if exporting to GeoJSON
                 if self.output_file.lower().endswith('.geojson'):
                     estimated_size = self.estimate_file_size(conn, table_name)
-                    if estimated_size > 20 and not self.size_warning_accepted:  # 20MB warning threshold
+                    if estimated_size > 4096 and not self.size_warning_accepted:  # 20MB warning threshold
                         self.file_size_warning.emit(estimated_size)
                         return
 
@@ -1040,7 +1040,6 @@ class QgisPluginGeoParquet:
         
         msg = QLabel(
             f"The estimated file size is {size_str}. Large GeoJSON files can be slow to process and load.\n\n"
-            "Please choose how you would like to proceed:"
         )
         msg.setWordWrap(True)
         layout.addWidget(msg)
@@ -1050,28 +1049,29 @@ class QgisPluginGeoParquet:
         recommended_label = QLabel("Alternative formats (recommended for large datasets):")
         format_group.addWidget(recommended_label)
         
-        formats = [
-            "GeoParquet (*.parquet)",
+        # Create horizontal layout for dropdown and button
+        format_row = QHBoxLayout()
+        
+        # Create dropdown instead of radio buttons
+        format_combo = QComboBox()
+        format_combo.addItems([
+            "FlatGeobuf (*.fgb)",
             "GeoPackage (*.gpkg)",
-            "FlatGeobuf (*.fgb)"
-        ]
-
-        format_buttons = []
-        for i, fmt in enumerate(formats):
-            radio = QRadioButton(fmt)
-            if i == 0:  # Select GeoParquet by default
-                radio.setChecked(True)
-            format_buttons.append(radio)
-            format_group.addWidget(radio)
-
+            "GeoParquet (*.parquet)"
+        ])
+        format_row.addWidget(format_combo)
+        
+        # Add Save As button next to dropdown
+        save_button = QPushButton("Save As...")
+        format_row.addWidget(save_button)
+        
+        format_group.addLayout(format_row)
         layout.addLayout(format_group)
 
-        # Buttons
+        # Buttons (now just Proceed and Cancel)
         button_box = QHBoxLayout()
-        save_button = QPushButton("Save As...")
         proceed_button = QPushButton("Proceed with GeoJSON anyway")
         cancel_button = QPushButton("Cancel")
-        button_box.addWidget(save_button)
         button_box.addWidget(proceed_button)
         button_box.addWidget(cancel_button)
         layout.addLayout(button_box)
@@ -1087,7 +1087,7 @@ class QgisPluginGeoParquet:
             result = dialog.exec_()
             if result == 1:  # Save As
                 # Get selected format
-                selected_format = next(btn.text() for btn in format_buttons if btn.isChecked())
+                selected_format = format_combo.currentText()
                 extension = selected_format.split("*")[1].rstrip(")")
                 
                 # Update output file path with new extension
