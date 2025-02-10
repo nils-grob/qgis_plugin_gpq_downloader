@@ -1,22 +1,23 @@
 import json
 
 from qgis.PyQt.QtWidgets import (
-    QAction, QFileDialog, QMessageBox, QDialog,
-    QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QComboBox, QProgressDialog,
-    QRadioButton, QStackedWidget, QWidget
+    QMessageBox,
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QComboBox,
+    QProgressDialog,
+    QRadioButton,
+    QStackedWidget,
+    QWidget,
 )
-from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtCore import pyqtSignal, QObject, Qt, QThread
-from qgis.core import (
-    QgsProject, QgsVectorLayer,
-    QgsSettings
-)
+from qgis.PyQt.QtCore import pyqtSignal, Qt, QThread
+from qgis.core import QgsSettings
 import os
-import datetime
-import duckdb
-from pathlib import Path
-from gpq_downloader.utils import transform_bbox_to_4326, ValidationWorker
+from gpq_downloader.utils import ValidationWorker
 
 
 class DataSourceDialog(QDialog):
@@ -74,7 +75,9 @@ class DataSourceDialog(QDialog):
         custom_page = QWidget()
         custom_layout = QVBoxLayout()
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("Enter URL to Parquet file or folder (s3:// or https://)")
+        self.url_input.setPlaceholderText(
+            "Enter URL to Parquet file or folder (s3:// or https://)"
+        )
         custom_layout.addWidget(self.url_input)
         custom_page.setLayout(custom_layout)
 
@@ -82,26 +85,25 @@ class DataSourceDialog(QDialog):
         overture_page = QWidget()
         overture_layout = QVBoxLayout()
         self.overture_combo = QComboBox()
-        self.overture_combo.addItems([
-            dataset.get('display_name', key.title())
-            for key, dataset in self.PRESET_DATASETS['overture'].items()
-        ])
+        self.overture_combo.addItems(
+            [
+                dataset.get("display_name", key.title())
+                for key, dataset in self.PRESET_DATASETS["overture"].items()
+            ]
+        )
         overture_layout.addWidget(self.overture_combo)
 
         # Add base subtype combo
         self.base_subtype_widget = QWidget()
         base_subtype_layout = QVBoxLayout()
-        base_subtype_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
+        base_subtype_layout.setContentsMargins(
+            20, 0, 0, 0
+        )  # Add left margin for indentation
         self.base_subtype_label = QLabel("Base Layer Type:")
         self.base_subtype_combo = QComboBox()
-        self.base_subtype_combo.addItems([
-            "infrastructure",
-            "land",
-            "land_cover",
-            "land_use",
-            "water",
-            "bathymetry"
-        ])
+        self.base_subtype_combo.addItems(
+            ["infrastructure", "land", "land_cover", "land_use", "water", "bathymetry"]
+        )
         base_subtype_layout.addWidget(self.base_subtype_label)
         base_subtype_layout.addWidget(self.base_subtype_combo)
         self.base_subtype_widget.setLayout(base_subtype_layout)
@@ -117,10 +119,12 @@ class DataSourceDialog(QDialog):
         sourcecoop_page = QWidget()
         sourcecoop_layout = QVBoxLayout()
         self.sourcecoop_combo = QComboBox()
-        self.sourcecoop_combo.addItems([
-            dataset['display_name']
-            for dataset in self.PRESET_DATASETS['source_cooperative'].values()
-        ])
+        self.sourcecoop_combo.addItems(
+            [
+                dataset["display_name"]
+                for dataset in self.PRESET_DATASETS["source_cooperative"].values()
+            ]
+        )
         sourcecoop_layout.addWidget(self.sourcecoop_combo)
 
         # Add link label
@@ -137,10 +141,12 @@ class DataSourceDialog(QDialog):
         other_page = QWidget()
         other_layout = QVBoxLayout()
         self.other_combo = QComboBox()
-        self.other_combo.addItems([
-            dataset['display_name']
-            for dataset in self.PRESET_DATASETS['other'].values()
-        ])
+        self.other_combo.addItems(
+            [
+                dataset["display_name"]
+                for dataset in self.PRESET_DATASETS["other"].values()
+            ]
+        )
         other_layout.addWidget(self.other_combo)
 
         # Add link label for other sources
@@ -211,25 +217,36 @@ class DataSourceDialog(QDialog):
         """Validate the input and accept the dialog if valid"""
         url = self.get_url()
         if not url:
-            QMessageBox.warning(self, "Validation Error", "Please enter a URL or select a dataset")
+            QMessageBox.warning(
+                self, "Validation Error", "Please enter a URL or select a dataset"
+            )
             return
 
         # For custom URLs, do some basic validation
         if self.custom_radio.isChecked():
-            if not (url.startswith('http://') or url.startswith('https://') or
-                    url.startswith('s3://') or url.startswith('file://') or url.startswith('hf://')):
-                QMessageBox.warning(self, "Validation Error",
-                                    "URL must start with http://, https://, s3://, hf://,or file://")
+            if not (
+                url.startswith("http://")
+                or url.startswith("https://")
+                or url.startswith("s3://")
+                or url.startswith("file://")
+                or url.startswith("hf://")
+            ):
+                QMessageBox.warning(
+                    self,
+                    "Validation Error",
+                    "URL must start with http://, https://, s3://, hf://,or file://",
+                )
                 return
 
         # Set requires_validation based on the selected dataset
         self.requires_validation = True
-        if self.overture_radio.isChecked() or \
-                (self.sourcecoop_radio.isChecked()):
+        if self.overture_radio.isChecked() or (self.sourcecoop_radio.isChecked()):
             self.requires_validation = False
 
         # Create progress dialog
-        self.progress_dialog = QProgressDialog("Starting validation...", "Cancel", 0, 0, self)
+        self.progress_dialog = QProgressDialog(
+            "Starting validation...", "Cancel", 0, 0, self
+        )
         self.progress_dialog.setWindowTitle("Validating Data Source")
         self.progress_dialog.setWindowModality(Qt.WindowModal)
         self.progress_dialog.setMinimumDuration(0)
@@ -255,7 +272,7 @@ class DataSourceDialog(QDialog):
         self.progress_dialog.show()
 
     def update_progress(self, message):
-        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+        if hasattr(self, "progress_dialog") and self.progress_dialog:
             self.progress_dialog.setLabelText(message)
 
     def handle_validation_result(self, success, message, validation_results):
@@ -278,7 +295,7 @@ class DataSourceDialog(QDialog):
             self.validation_thread.deleteLater()
             self.validation_thread = None
 
-        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+        if hasattr(self, "progress_dialog") and self.progress_dialog:
             self.progress_dialog.close()
             self.progress_dialog = None
 
@@ -295,7 +312,7 @@ class DataSourceDialog(QDialog):
             return self.url_input.text().strip()
         elif self.overture_radio.isChecked():
             theme = self.overture_combo.currentText().lower()
-            dataset = self.PRESET_DATASETS['overture'][theme]
+            dataset = self.PRESET_DATASETS["overture"][theme]
             if theme == "transportation":
                 type_str = "segment"
             elif theme == "divisions":
@@ -305,53 +322,69 @@ class DataSourceDialog(QDialog):
             elif theme == "base":
                 type_str = self.base_subtype_combo.currentText()
             else:
-                type_str = theme.rstrip('s')  # remove trailing 's' for singular form
-            return dataset['url_template'].format(subtype=type_str)
+                type_str = theme.rstrip("s")  # remove trailing 's' for singular form
+            return dataset["url_template"].format(subtype=type_str)
         elif self.sourcecoop_radio.isChecked():
             selection = self.sourcecoop_combo.currentText()
-            dataset = next((dataset for dataset in self.PRESET_DATASETS['source_cooperative'].values() if
-                            dataset['display_name'] == selection), None)
+            dataset = next(
+                (
+                    dataset
+                    for dataset in self.PRESET_DATASETS["source_cooperative"].values()
+                    if dataset["display_name"] == selection
+                ),
+                None,
+            )
             if dataset:
-                return dataset['url']
+                return dataset["url"]
         elif self.other_radio.isChecked():
             selection = self.other_combo.currentText()
-            dataset = next((dataset for dataset in self.PRESET_DATASETS['other'].values()
-                            if dataset['display_name'] == selection), None)
+            dataset = next(
+                (
+                    dataset
+                    for dataset in self.PRESET_DATASETS["other"].values()
+                    if dataset["display_name"] == selection
+                ),
+                None,
+            )
             if dataset:
-                return dataset['url']
+                return dataset["url"]
         return ""
 
     def update_sourcecoop_link(self, selection):
         """Update the link based on the selected dataset"""
         if selection == "Planet EU Field Boundaries (2022)":
             self.sourcecoop_link.setText(
-                '<a href="https://source.coop/repositories/planet/eu-field-boundaries/description">View dataset info</a>')
+                '<a href="https://source.coop/repositories/planet/eu-field-boundaries/description">View dataset info</a>'
+            )
         elif selection == "USDA Crop Sequence Boundaries":
             self.sourcecoop_link.setText(
-                '<a href="https://source.coop/fiboa/us-usda-cropland/description">View dataset info</a>')
+                '<a href="https://source.coop/fiboa/us-usda-cropland/description">View dataset info</a>'
+            )
         elif selection == "California Crop Mapping":
             self.sourcecoop_link.setText(
-                '<a href="https://source.coop/repositories/fiboa/us-ca-scm/description">View dataset info</a>')
+                '<a href="https://source.coop/repositories/fiboa/us-ca-scm/description">View dataset info</a>'
+            )
         elif selection == "VIDA Google/Microsoft/OSM Buildings":
             self.sourcecoop_link.setText(
-                '<a href="https://source.coop/repositories/vida/google-microsoft-osm-open-buildings/description">View dataset info</a>')
+                '<a href="https://source.coop/repositories/vida/google-microsoft-osm-open-buildings/description">View dataset info</a>'
+            )
         else:
-            self.sourcecoop_link.setText('')
+            self.sourcecoop_link.setText("")
 
     def update_other_link(self, selection):
         """Update the link based on the selected dataset"""
-        for dataset in self.PRESET_DATASETS['other'].values():
-            if dataset['display_name'] == selection:
+        for dataset in self.PRESET_DATASETS["other"].values():
+            if dataset["display_name"] == selection:
                 self.other_link.setText(
                     f'<a href="{dataset["info_url"]}">View dataset info</a>'
                 )
                 return
-        self.other_link.setText('')
+        self.other_link.setText("")
 
     def show_bbox_warning(self):
         """Show bbox warning dialog in main thread"""
         # Close the progress dialog if it exists
-        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+        if hasattr(self, "progress_dialog") and self.progress_dialog:
             self.progress_dialog.close()
             self.progress_dialog = None
 
@@ -362,12 +395,15 @@ class DataSourceDialog(QDialog):
             "GeoParquet 1.1 files with a bbox column work much better - tell your data provider to upgrade!\n\n"
             "Do you want to continue with the download?",
             QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            QMessageBox.No,
         )
 
-        validation_results = {'has_bbox': False, 'schema': None}
+        validation_results = {"has_bbox": False, "schema": None}
         if reply == QMessageBox.No:
-            self.validation_complete.emit(False, "Download cancelled by user.", validation_results)
+            self.validation_complete.emit(
+                False, "Download cancelled by user.", validation_results
+            )
         else:
-            self.validation_complete.emit(True, "Validation successful", validation_results)
-
+            self.validation_complete.emit(
+                True, "Validation successful", validation_results
+            )

@@ -1,22 +1,24 @@
 from qgis.PyQt.QtWidgets import (
-    QAction, QFileDialog, QMessageBox, QDialog,
-    QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QComboBox, QProgressDialog,
-    QRadioButton, QStackedWidget, QWidget
+    QAction,
+    QFileDialog,
+    QMessageBox,
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QProgressDialog,
 )
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtCore import pyqtSignal, QObject, Qt, QThread
-from qgis.core import (
-    QgsProject, QgsVectorLayer,
-    QgsSettings
-)
+from qgis.PyQt.QtCore import Qt, QThread
+from qgis.core import QgsProject, QgsVectorLayer, QgsSettings
 import os
 import datetime
-import duckdb
 from pathlib import Path
 
 from gpq_downloader.dialog import DataSourceDialog
-from gpq_downloader.utils import transform_bbox_to_4326, Worker
+from gpq_downloader.utils import Worker
 
 
 class QgisPluginGeoParquet:
@@ -36,9 +38,7 @@ class QgisPluginGeoParquet:
         base_path = os.path.dirname(os.path.abspath(__file__))
         icon_path = os.path.join(base_path, "icons", "parquet-download.svg")
         self.action = QAction(
-            QIcon(icon_path),
-            "Download GeoParquet Data",
-            self.iface.mainWindow()
+            QIcon(icon_path), "Download GeoParquet Data", self.iface.mainWindow()
         )
         self.action.setToolTip("Download GeoParquet Data")
         self.action.triggered.connect(self.run)
@@ -59,8 +59,15 @@ class QgisPluginGeoParquet:
 
         dialog = DataSourceDialog(self.iface.mainWindow(), self.iface)
 
-        selected_name = QgsSettings().value("gpq_downloader/radio_selection", section=QgsSettings.Plugins)
-        for button in [dialog.overture_radio, dialog.sourcecoop_radio, dialog.other_radio, dialog.custom_radio]:
+        selected_name = QgsSettings().value(
+            "gpq_downloader/radio_selection", section=QgsSettings.Plugins
+        )
+        for button in [
+            dialog.overture_radio,
+            dialog.sourcecoop_radio,
+            dialog.other_radio,
+            dialog.custom_radio,
+        ]:
             if button.text() == selected_name:
                 button.setChecked(True)
         if not selected_name:
@@ -69,18 +76,25 @@ class QgisPluginGeoParquet:
         # Connect validation complete signal to handle the result
         dialog.validation_complete.connect(
             lambda success, message, results: self.handle_validation_complete(
-                success, message, results, dialog.get_url(), self.iface.mapCanvas().extent(), dialog
+                success,
+                message,
+                results,
+                dialog.get_url(),
+                self.iface.mapCanvas().extent(),
+                dialog,
             )
         )
 
         if dialog.exec_() != QDialog.Accepted:
             return
 
-    def handle_validation_complete(self, success, message, validation_results, url, extent, dialog):
+    def handle_validation_complete(
+        self, success, message, validation_results, url, extent, dialog
+    ):
         """Handle validation completion and start download if successful."""
         if success:
             # Get current date for filename
-            current_date = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            current_date = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
             # Generate the default filename based on dialog selection
             if dialog.overture_radio.isChecked():
@@ -107,7 +121,7 @@ class QgisPluginGeoParquet:
                 self.iface.mainWindow(),
                 "Save Data",
                 default_save_path,
-                "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg);;FlatGeobuf (*.fgb);;GeoJSON (*.geojson)"
+                "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg);;FlatGeobuf (*.fgb);;GeoJSON (*.geojson)",
             )
 
             if output_file:
@@ -124,7 +138,9 @@ class QgisPluginGeoParquet:
         self.progress_dialog = self.create_progress_dialog("Downloading Data")
 
         # Create worker with validation results
-        self.worker, self.worker_thread = self.setup_worker(dataset_url, extent, output_file, validation_results)
+        self.worker, self.worker_thread = self.setup_worker(
+            dataset_url, extent, output_file, validation_results
+        )
 
         # Show the progress dialog and start the thread
         self.progress_dialog.show()
@@ -135,7 +151,7 @@ class QgisPluginGeoParquet:
         QMessageBox.critical(self.iface.mainWindow(), "Error", message)
 
     def update_progress(self, message):
-        if hasattr(self, 'progress_dialog'):
+        if hasattr(self, "progress_dialog"):
             self.progress_dialog.setLabelText(message)
 
     def cancel_download(self):
@@ -151,12 +167,12 @@ class QgisPluginGeoParquet:
             self.worker_thread.wait()
             self.worker_thread = None
             self.worker = None
-        if hasattr(self, 'progress_dialog'):
+        if hasattr(self, "progress_dialog"):
             self.progress_dialog.close()
 
     def load_layer(self, output_file):
         """Load the layer into QGIS if GeoParquet is supported"""
-        if output_file.lower().endswith('.parquet'):
+        if output_file.lower().endswith(".parquet"):
             # Try to create a test layer to check GeoParquet support
             test_layer = QgsVectorLayer(output_file, "test", "ogr")
             if not test_layer.isValid():
@@ -177,7 +193,8 @@ class QgisPluginGeoParquet:
 
                 link = QLabel()
                 link.setText(
-                    '<a href="https://github.com/cholmes/qgis_plugin_gpq_downloader/wiki/Installing-GeoParquet-Support-in-QGIS">Installing GeoParquet Support in QGIS</a>')
+                    '<a href="https://github.com/cholmes/qgis_plugin_gpq_downloader/wiki/Installing-GeoParquet-Support-in-QGIS">Installing GeoParquet Support in QGIS</a>'
+                )
                 link.setOpenExternalLinks(True)
                 layout.addWidget(link)
 
@@ -193,7 +210,11 @@ class QgisPluginGeoParquet:
         # Create the layer
         layer = QgsVectorLayer(output_file, layer_name, "ogr")
         if not layer.isValid():
-            QMessageBox.critical(self.iface.mainWindow(), "Error", f"Failed to load the layer from {output_file}")
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Error",
+                f"Failed to load the layer from {output_file}",
+            )
             return
         # Add the layer to the QGIS project
         QgsProject.instance().addMapLayer(layer)
@@ -205,22 +226,26 @@ class QgisPluginGeoParquet:
     def handle_large_file_warning(self, estimated_size):
         """Handle warning about large GeoJSON file size with a more streamlined UI"""
         # Store worker info before any cleanup
-        if not hasattr(self, 'worker') or self.worker is None:
-            QMessageBox.critical(self.iface.mainWindow(), "Error", "Download session lost. Please try again.")
+        if not hasattr(self, "worker") or self.worker is None:
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Error",
+                "Download session lost. Please try again.",
+            )
             return
 
         # Store all necessary info before any cleanup
         worker_info = {
-            'dataset_url': self.worker.dataset_url,
-            'extent': self.worker.extent,
-            'iface': self.worker.iface,
-            'validation_results': self.worker.validation_results,
-            'output_file': self.output_file,
-            'size_warning_accepted': False
+            "dataset_url": self.worker.dataset_url,
+            "extent": self.worker.extent,
+            "iface": self.worker.iface,
+            "validation_results": self.worker.validation_results,
+            "output_file": self.output_file,
+            "size_warning_accepted": False,
         }
 
         # Now we can safely close the progress dialog
-        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+        if hasattr(self, "progress_dialog") and self.progress_dialog:
             self.progress_dialog.close()
 
         dialog = QDialog(self.iface.mainWindow())
@@ -242,7 +267,9 @@ class QgisPluginGeoParquet:
 
         # Format selection
         format_group = QVBoxLayout()
-        recommended_label = QLabel("Alternative formats (recommended for large datasets):")
+        recommended_label = QLabel(
+            "Alternative formats (recommended for large datasets):"
+        )
         format_group.addWidget(recommended_label)
 
         # Create horizontal layout for dropdown and button
@@ -250,11 +277,9 @@ class QgisPluginGeoParquet:
 
         # Create dropdown instead of radio buttons
         format_combo = QComboBox()
-        format_combo.addItems([
-            "FlatGeobuf (*.fgb)",
-            "GeoPackage (*.gpkg)",
-            "GeoParquet (*.parquet)"
-        ])
+        format_combo.addItems(
+            ["FlatGeobuf (*.fgb)", "GeoPackage (*.gpkg)", "GeoParquet (*.parquet)"]
+        )
         format_row.addWidget(format_combo)
 
         # Add Save As button next to dropdown
@@ -276,8 +301,12 @@ class QgisPluginGeoParquet:
 
         # Connect buttons
         cancel_button.clicked.connect(dialog.reject)
-        save_button.clicked.connect(lambda: dialog.done(1))  # Custom return code for Save As
-        proceed_button.clicked.connect(lambda: dialog.done(2))  # Custom return code for Proceed
+        save_button.clicked.connect(
+            lambda: dialog.done(1)
+        )  # Custom return code for Save As
+        proceed_button.clicked.connect(
+            lambda: dialog.done(2)
+        )  # Custom return code for Proceed
 
         while True:
             result = dialog.exec_()
@@ -287,20 +316,23 @@ class QgisPluginGeoParquet:
                 extension = selected_format.split("*")[1].rstrip(")")
 
                 # Update output file path with new extension
-                new_output_file = os.path.splitext(worker_info['output_file'])[0] + extension
+                new_output_file = (
+                    os.path.splitext(worker_info["output_file"])[0] + extension
+                )
 
                 # Show save file dialog with selected format
                 output_file, _ = QFileDialog.getSaveFileName(
                     self.iface.mainWindow(),
                     "Save Data",
                     new_output_file,
-                    selected_format
+                    selected_format,
                 )
 
                 if output_file:
                     # Create new progress dialog
-                    self.progress_dialog = QProgressDialog("Starting download...", "Cancel", 0, 0,
-                                                           self.iface.mainWindow())
+                    self.progress_dialog = QProgressDialog(
+                        "Starting download...", "Cancel", 0, 0, self.iface.mainWindow()
+                    )
                     self.progress_dialog.setWindowTitle("Downloading Data")
                     self.progress_dialog.setWindowModality(Qt.NonModal)
                     self.progress_dialog.setMinimumDuration(0)
@@ -310,11 +342,11 @@ class QgisPluginGeoParquet:
 
                     # Create new worker and thread
                     self.worker = Worker(
-                        worker_info['dataset_url'],
-                        worker_info['extent'],
+                        worker_info["dataset_url"],
+                        worker_info["extent"],
                         output_file,
-                        worker_info['iface'],
-                        worker_info['validation_results']
+                        worker_info["iface"],
+                        worker_info["validation_results"],
                     )
                     self.worker_thread = QThread()
                     self.worker.moveToThread(self.worker_thread)
@@ -324,7 +356,9 @@ class QgisPluginGeoParquet:
                     self.worker.error.connect(self.handle_error)
                     self.worker.load_layer.connect(self.load_layer)
                     self.worker.info.connect(self.show_info)
-                    self.worker.file_size_warning.connect(self.handle_large_file_warning)
+                    self.worker.file_size_warning.connect(
+                        self.handle_large_file_warning
+                    )
                     self.worker.finished.connect(self.cleanup_thread)
                     self.worker.progress.connect(self.update_progress)
                     self.progress_dialog.canceled.connect(self.cancel_download)
@@ -337,18 +371,20 @@ class QgisPluginGeoParquet:
 
             elif result == 2:  # Proceed with GeoJSON
                 # Create new progress dialog
-                self.progress_dialog = QProgressDialog("Starting download...", "Cancel", 0, 0, self.iface.mainWindow())
+                self.progress_dialog = QProgressDialog(
+                    "Starting download...", "Cancel", 0, 0, self.iface.mainWindow()
+                )
                 self.progress_dialog.setWindowTitle("Downloading Data")
                 self.progress_dialog.setWindowModality(Qt.NonModal)
                 self.progress_dialog.setMinimumDuration(0)
 
                 # Create new worker with original settings
                 self.worker = Worker(
-                    worker_info['dataset_url'],
-                    worker_info['extent'],
-                    worker_info['output_file'],
-                    worker_info['iface'],
-                    worker_info['validation_results']
+                    worker_info["dataset_url"],
+                    worker_info["extent"],
+                    worker_info["output_file"],
+                    worker_info["iface"],
+                    worker_info["validation_results"],
                 )
                 self.worker_thread = QThread()
                 self.worker.moveToThread(self.worker_thread)
@@ -375,9 +411,13 @@ class QgisPluginGeoParquet:
                 self.cleanup_thread()
                 return
 
-    def create_progress_dialog(self, title="Downloading Data", message="Starting download..."):
+    def create_progress_dialog(
+        self, title="Downloading Data", message="Starting download..."
+    ):
         """Create and return a configured progress dialog"""
-        progress_dialog = QProgressDialog(message, "Cancel", 0, 0, self.iface.mainWindow())
+        progress_dialog = QProgressDialog(
+            message, "Cancel", 0, 0, self.iface.mainWindow()
+        )
         progress_dialog.setWindowTitle(title)
         progress_dialog.setWindowModality(Qt.NonModal)
         progress_dialog.setMinimumDuration(0)
@@ -385,7 +425,9 @@ class QgisPluginGeoParquet:
 
     def setup_worker(self, dataset_url, extent, output_file, validation_results):
         """Create and setup a worker thread with all connections"""
-        self.worker = Worker(dataset_url, extent, output_file, self.iface, validation_results)
+        self.worker = Worker(
+            dataset_url, extent, output_file, self.iface, validation_results
+        )
         self.worker_thread = QThread()
         self.worker.moveToThread(self.worker_thread)
 
