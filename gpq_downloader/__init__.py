@@ -186,7 +186,7 @@ class DummyPlugin:
             self.real_plugin.unload()
 
     def loadRealPlugin(self):
-        from .qgis_plugin_gpq_downloader import QgisPluginGeoParquet
+        from gpq_downloader.plugin import QgisPluginGeoParquet
         self.real_plugin = QgisPluginGeoParquet(self.iface)
         # The real plugin adds the buttons and other UI elements
         self.real_plugin.initGui()
