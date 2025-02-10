@@ -113,7 +113,7 @@ class Worker(QObject):
     progress = pyqtSignal(str)
     percent = pyqtSignal(int)
 
-    def __init__(self, dataset_url, extent, output_file, iface, validation_results):
+    def __init__(self, dataset_url, extent, output_file, iface, validation_results, layer_name=None):
         super().__init__()
         self.dataset_url = dataset_url
         self.extent = extent
@@ -121,6 +121,7 @@ class Worker(QObject):
         self.iface = iface
         self.validation_results = validation_results
         self.killed = False
+        self.layer_name = layer_name
 
     def get_bbox_info_from_metadata(self, conn):
         """Read GeoParquet metadata to find bbox column info"""
@@ -162,14 +163,15 @@ class Worker(QObject):
 
     def run(self):
         try:
-            self.progress.emit("Connecting to database...")
+            layer_info = f" for {self.layer_name}" if self.layer_name else ""
+            self.progress.emit(f"Connecting to database{layer_info}...")
             source_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
             bbox = transform_bbox_to_4326(self.extent, source_crs)
 
             conn = duckdb.connect()
             try:
                 # Install and load the spatial extension
-                self.progress.emit("Loading spatial extension...")
+                self.progress.emit(f"Loading spatial extension for{layer_info}...")
 
                 if self.output_file.lower().endswith('.duckdb'):
                     conn = duckdb.connect(self.output_file)  # Connect directly to output file
@@ -188,7 +190,7 @@ class Worker(QObject):
 
                 table_name = "download_data"
 
-                self.progress.emit("Preparing query...")
+                self.progress.emit(f"Preparing query for{layer_info}...")
                 select_query = "SELECT *"
                 if not self.output_file.endswith(".parquet"):
                     # Construct the SELECT clause with array conversion to strings
@@ -244,7 +246,7 @@ class Worker(QObject):
                     {where_clause}
                 ) 
                 """
-                self.progress.emit("Downloading data...")
+                self.progress.emit(f"Downloading{layer_info} data...")
                 print("Executing SQL query:")
                 print(base_query)
                 conn.execute(base_query)
@@ -252,11 +254,11 @@ class Worker(QObject):
                 # Add check for empty results
                 row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
                 if row_count == 0:
-                    self.info.emit("No data found in the requested area. Check that your map extent overlaps with the data and/or expand your map extent. Skipping to next dataset if available.")
+                    self.info.emit(f"No data found{layer_info} in the requested area. Check that your map extent overlaps with the data and/or expand your map extent. Skipping to next dataset if available.")
                     self.finished.emit()
                     return
 
-                self.progress.emit("Processing data to requested format...")
+                self.progress.emit(f"Processing{layer_info} data to requested format...")
 
                 file_extension = self.output_file.lower().split('.')[-1]
 
@@ -303,7 +305,7 @@ class Worker(QObject):
                     # Change error to info if it's a "no data" error
                     error_str = str(e)
                     if "No data found" in error_str:
-                        self.info.emit(f"No data found in the requested area for {self.dataset_url}. Skipping to next dataset if available.")
+                        self.info.emit(f"No data found{layer_info} in the requested area for {self.dataset_url}. Skipping to next dataset if available.")
                         self.finished.emit()
                     else:
                         self.error.emit(error_str)
@@ -437,7 +439,8 @@ class ValidationWorker(QObject):
                 """
                 result = conn.execute(test_query).fetchone()
                 if result[0] == 0:
-                    self.finished.emit(False, "No data found in the requested area. Check that your map extent overlaps with the data and/or expand your map extent.", {})
+                    layer_info = f" for {self.layer_name}" if hasattr(self, 'layer_name') else ""
+                    self.finished.emit(False, f"No data found{layer_info} in the requested area. Check that your map extent overlaps with the data and/or expand your map extent.", {})
                     return
             except Exception as e:
                 # If the query fails, continue anyway as the file might be valid but structured differently
@@ -918,17 +921,32 @@ class QgisPluginGeoParquet:
         url, output_file = download_queue[0]
         remaining_queue = download_queue[1:]
         
+        # Extract layer name from URL for Overture data
+        layer_name = None
+        if 'overture' in url:
+            if 'theme=' in url:
+                theme = url.split('theme=')[1].split('/')[0]
+                if theme == 'base':
+                    # For base layers, include the subtype
+                    subtype = url.split('type=')[1].split('/')[0]
+                    layer_name = f"Overture {theme.title()} - {subtype.title()}"
+                else:
+                    layer_name = f"Overture {theme.title()}"
+        
         # Create validation results (we know Overture URLs are valid)
         validation_results = {'has_bbox': True, 'bbox_column': 'bbox'}
         
         # Create progress dialog
-        self.progress_dialog = QProgressDialog("Starting download...", "Cancel", 0, 0, self.iface.mainWindow())
+        self.progress_dialog = QProgressDialog(
+            "Starting download..." if not layer_name else f"Starting {layer_name} download...",
+            "Cancel", 0, 0, self.iface.mainWindow()
+        )
         self.progress_dialog.setWindowTitle("Downloading Data")
         self.progress_dialog.setWindowModality(Qt.NonModal)
         self.progress_dialog.setMinimumDuration(0)
         
-        # Create worker
-        self.worker = Worker(url, extent, output_file, self.iface, validation_results)
+        # Create worker with layer name
+        self.worker = Worker(url, extent, output_file, self.iface, validation_results, layer_name)
         self.worker_thread = QThread()
         
         # Move worker to thread
