@@ -8,7 +8,7 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtCore import pyqtSignal, QObject, Qt, QThread
 from qgis.core import (
     QgsProject, QgsRectangle, QgsVectorLayer, 
-    QgsCoordinateReferenceSystem, QgsCoordinateTransform
+    QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsSettings
 )
 import os
 import datetime
@@ -112,6 +112,7 @@ class Worker(QObject):
     info = pyqtSignal(str)
     progress = pyqtSignal(str)
     percent = pyqtSignal(int)
+    file_size_warning = pyqtSignal(float)  # Signal for file size warnings (in MB)
 
     def __init__(self, dataset_url, extent, output_file, iface, validation_results, layer_name=None):
         super().__init__()
@@ -122,6 +123,7 @@ class Worker(QObject):
         self.validation_results = validation_results
         self.killed = False
         self.layer_name = layer_name
+        self.size_warning_accepted = False  # Ensure this is False on initialization
 
     def get_bbox_info_from_metadata(self, conn):
         """Read GeoParquet metadata to find bbox column info"""
@@ -271,6 +273,13 @@ class Worker(QObject):
                             "Note: QGIS does not currently support loading DuckDB files directly."
                         )
                 else:
+                    # Check size if exporting to GeoJSON
+                    if self.output_file.lower().endswith('.geojson'):
+                        estimated_size = self.estimate_file_size(conn, table_name)
+                        if estimated_size > 4096 and not self.size_warning_accepted:  # 20MB warning threshold
+                            self.file_size_warning.emit(estimated_size)
+                            return
+
                     copy_query = f"COPY {table_name} TO '{self.output_file}'"
 
                     if file_extension == "parquet":
@@ -279,6 +288,8 @@ class Worker(QObject):
                         format_options = "(FORMAT GDAL, DRIVER 'GPKG');"
                     elif self.output_file.endswith(".fgb"):
                         format_options = "(FORMAT GDAL, DRIVER 'FlatGeobuf', SRS 'EPSG:4326');"
+                    elif self.output_file.endswith(".geojson"):
+                        format_options = "(FORMAT GDAL, DRIVER 'GeoJSON', SRS 'EPSG:4326');"
                     else:
                         self.error.emit("Unsupported file format.")
                     
@@ -323,6 +334,53 @@ class Worker(QObject):
 
     def kill(self):
         self.killed = True
+
+    def estimate_file_size(self, conn, table_name):
+        """Estimate the output file size in MB using GeoJSON feature collection structure"""
+        try:
+            # Get total row count
+            row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+            
+            # Use a smaller sample size for large datasets
+            sample_size = min(100, row_count)
+            
+            if sample_size > 0:
+                # Create a proper GeoJSON FeatureCollection sample with all properties
+                sample_query = f"""
+                    WITH sample AS (
+                        SELECT * FROM {table_name} LIMIT {sample_size}
+                    )
+                    SELECT AVG(LENGTH(
+                        json_object(
+                            'type', 'Feature',
+                            'geometry', ST_AsGeoJSON(geometry),
+                            'properties', json_object(
+                                {', '.join([
+                                    f"'{col[0]}', COALESCE(CAST({col[0]} AS VARCHAR), 'null')"
+                                    for col in conn.execute(f"DESCRIBE {table_name}").fetchall()
+                                    if col[0] != 'geometry'
+                                ])}
+                            )
+                        )::VARCHAR
+                    )) as avg_feature_size
+                    FROM sample;
+                """
+                
+                # Get average feature size
+                avg_feature_size = conn.execute(sample_query).fetchone()[0]
+                
+                if avg_feature_size:
+                    # Account for GeoJSON overhead
+                    collection_overhead = 50  # {"type":"FeatureCollection","features":[]}
+                    comma_overhead = row_count - 1  # Commas between features
+                    
+                    total_estimated_bytes = (row_count * avg_feature_size) + collection_overhead + comma_overhead
+                    return total_estimated_bytes / (1024 * 1024)  # Convert to MB
+            return 0
+            
+        except Exception as e:
+            print(f"Error estimating file size: {str(e)}")
+            return 0
 
 class ValidationWorker(QObject):
     finished = pyqtSignal(bool, str, dict)
@@ -497,6 +555,12 @@ class DataSourceDialog(QDialog):
         radio_layout.addWidget(self.other_radio)
         radio_layout.addWidget(self.custom_radio)
 
+        # Connect to save state
+        self.overture_radio.released.connect(self.save_radio_button_state)
+        self.sourcecoop_radio.released.connect(self.save_radio_button_state)
+        self.other_radio.released.connect(self.save_radio_button_state)
+        self.custom_radio.released.connect(self.save_radio_button_state)
+
         # Add radio button layout to main layout
         layout.addLayout(radio_layout)
         
@@ -669,6 +733,23 @@ class DataSourceDialog(QDialog):
 
             self.resize(current_size.width() - 100, current_size.height())
 
+    def save_radio_button_state(self) -> None:
+        if self.custom_radio.isChecked():
+            button_name = self.custom_radio.text()
+        elif self.overture_radio.isChecked():
+            button_name = self.overture_radio.text()
+        elif self.sourcecoop_radio.isChecked():
+            button_name = self.sourcecoop_radio.text()
+        elif self.other_radio.isChecked():
+            button_name = self.other_radio.text()
+        elif self.custom_radio.isChecked():
+            button_name = self.custom_radio.text()
+
+        QgsSettings().setValue(
+            "gpq_downloader/radio_selection",
+            button_name,
+            section=QgsSettings.Plugins,
+        )
 
     def validate_and_accept(self):
         """Validate the input and accept the dialog if valid"""
@@ -850,7 +931,13 @@ class QgisPluginGeoParquet:
 
     def run(self, default_source=None):
         dialog = DataSourceDialog(self.iface.mainWindow(), self.iface)
-        dialog.overture_radio.setChecked(True)
+
+        selected_name = QgsSettings().value("gpq_downloader/radio_selection", section=QgsSettings.Plugins)
+        for button in [dialog.overture_radio, dialog.sourcecoop_radio, dialog.other_radio, dialog.custom_radio]:
+            if button.text() == selected_name:
+                button.setChecked(True)
+        if not selected_name:
+            dialog.overture_radio.setChecked(True)
         
         if dialog.exec_() == QDialog.Accepted:
             # Get the selected URLs from the dialog
@@ -899,7 +986,7 @@ class QgisPluginGeoParquet:
                     self.iface.mainWindow(),
                     f"Save Data for {theme if dialog.overture_radio.isChecked() else 'dataset'}",
                     default_save_path,
-                    "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg);;FlatGeobuf (*.fgb)"
+                    "GeoParquet (*.parquet);;DuckDB Database (*.duckdb);;GeoPackage (*.gpkg);;FlatGeobuf (*.fgb);;GeoJSON (*.geojson)"
                 )
                 
                 if output_file:
@@ -947,6 +1034,7 @@ class QgisPluginGeoParquet:
         
         # Create worker with layer name
         self.worker = Worker(url, extent, output_file, self.iface, validation_results, layer_name)
+        self.worker.remaining_queue = remaining_queue  # Store remaining queue in worker
         self.worker_thread = QThread()
         
         # Move worker to thread
@@ -959,6 +1047,7 @@ class QgisPluginGeoParquet:
         self.worker.info.connect(self.show_info)
         self.worker.finished.connect(lambda: self.handle_download_complete(remaining_queue, extent))
         self.worker.progress.connect(self.update_progress)
+        self.worker.file_size_warning.connect(self.handle_large_file_warning)
         self.progress_dialog.canceled.connect(self.cancel_download)
         
         # Show the progress dialog and start the thread
@@ -1042,6 +1131,185 @@ class QgisPluginGeoParquet:
     def show_info(self, message):
         """Show an information message to the user"""
         QMessageBox.information(self.iface.mainWindow(), "Success", message)
+
+    def handle_large_file_warning(self, estimated_size):
+        """Handle warning about large GeoJSON file size with a more streamlined UI"""
+        # Store worker info before any cleanup
+        if not hasattr(self, 'worker') or self.worker is None:
+            QMessageBox.critical(self.iface.mainWindow(), "Error", "Download session lost. Please try again.")
+            return
+
+        # Store all necessary info before any cleanup
+        worker_info = {
+            'dataset_url': self.worker.dataset_url,
+            'extent': self.worker.extent,
+            'iface': self.worker.iface,
+            'validation_results': self.worker.validation_results,
+            'output_file': self.worker.output_file,
+            'size_warning_accepted': False,
+            'remaining_queue': getattr(self.worker, 'remaining_queue', [])  # Store remaining queue
+        }
+        
+        # Now we can safely close the progress dialog
+        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+            self.progress_dialog.close()
+        
+        dialog = QDialog(self.iface.mainWindow())
+        dialog.setWindowTitle("Large File Warning")
+        dialog.setMinimumWidth(400)
+        layout = QVBoxLayout()
+
+        # Format size for display
+        if estimated_size >= 1024:
+            size_str = f"{estimated_size/1024:.2f} GB"
+        else:
+            size_str = f"{estimated_size:.0f} MB"
+        
+        msg = QLabel(
+            f"The estimated file size is {size_str}. Large GeoJSON files can be slow to process and load.\n\n"
+        )
+        msg.setWordWrap(True)
+        layout.addWidget(msg)
+
+        # Format selection
+        format_group = QVBoxLayout()
+        recommended_label = QLabel("Alternative formats (recommended for large datasets):")
+        format_group.addWidget(recommended_label)
+        
+        # Create horizontal layout for dropdown and button
+        format_row = QHBoxLayout()
+        
+        # Create dropdown instead of radio buttons
+        format_combo = QComboBox()
+        format_combo.addItems([
+            "FlatGeobuf (*.fgb)",
+            "GeoPackage (*.gpkg)",
+            "GeoParquet (*.parquet)"
+        ])
+        format_row.addWidget(format_combo)
+        
+        # Add Save As button next to dropdown
+        save_button = QPushButton("Save As...")
+        format_row.addWidget(save_button)
+        
+        format_group.addLayout(format_row)
+        layout.addLayout(format_group)
+
+        # Buttons (now just Proceed and Cancel)
+        button_box = QHBoxLayout()
+        proceed_button = QPushButton("Proceed with GeoJSON anyway")
+        cancel_button = QPushButton("Cancel")
+        button_box.addWidget(proceed_button)
+        button_box.addWidget(cancel_button)
+        layout.addLayout(button_box)
+
+        dialog.setLayout(layout)
+
+        # Connect buttons
+        cancel_button.clicked.connect(dialog.reject)
+        save_button.clicked.connect(lambda: dialog.done(1))  # Custom return code for Save As
+        proceed_button.clicked.connect(lambda: dialog.done(2))  # Custom return code for Proceed
+
+        while True:
+            result = dialog.exec_()
+            if result == 1:  # Save As
+                # Get selected format
+                selected_format = format_combo.currentText()
+                extension = selected_format.split("*")[1].rstrip(")")
+                
+                # Update output file path with new extension
+                new_output_file = os.path.splitext(worker_info['output_file'])[0] + extension
+                
+                # Show save file dialog with selected format
+                output_file, _ = QFileDialog.getSaveFileName(
+                    self.iface.mainWindow(),
+                    "Save Data",
+                    new_output_file,
+                    selected_format
+                )
+                
+                if output_file:
+                    # Create new progress dialog
+                    self.progress_dialog = QProgressDialog("Starting download...", "Cancel", 0, 0, self.iface.mainWindow())
+                    self.progress_dialog.setWindowTitle("Downloading Data")
+                    self.progress_dialog.setWindowModality(Qt.NonModal)
+                    self.progress_dialog.setMinimumDuration(0)
+                    
+                    # Update output file
+                    self.output_file = output_file
+                    
+                    # Create new worker and thread
+                    self.worker = Worker(
+                        worker_info['dataset_url'],
+                        worker_info['extent'],
+                        output_file,
+                        worker_info['iface'],
+                        worker_info['validation_results']
+                    )
+                    self.worker.remaining_queue = worker_info['remaining_queue']  # Pass remaining queue
+                    self.worker_thread = QThread()
+                    self.worker.moveToThread(self.worker_thread)
+                    
+                    # Connect signals
+                    self.worker_thread.started.connect(self.worker.run)
+                    self.worker.error.connect(self.handle_error)
+                    self.worker.load_layer.connect(self.load_layer)
+                    self.worker.info.connect(self.show_info)
+                    self.worker.file_size_warning.connect(self.handle_large_file_warning)
+                    self.worker.finished.connect(lambda: self.handle_download_complete(worker_info['remaining_queue'], worker_info['extent']))
+                    self.worker.progress.connect(self.update_progress)
+                    self.progress_dialog.canceled.connect(self.cancel_download)
+                    
+                    # Show progress dialog and start thread
+                    self.progress_dialog.show()
+                    self.worker_thread.start()
+                    return
+                continue  # If Save As was cancelled, continue the loop
+            
+            elif result == 2:  # Proceed with GeoJSON
+                # Create new progress dialog
+                self.progress_dialog = QProgressDialog("Starting download...", "Cancel", 0, 0, self.iface.mainWindow())
+                self.progress_dialog.setWindowTitle("Downloading Data")
+                self.progress_dialog.setWindowModality(Qt.NonModal)
+                self.progress_dialog.setMinimumDuration(0)
+                
+                # Create new worker with original settings
+                self.worker = Worker(
+                    worker_info['dataset_url'],
+                    worker_info['extent'],
+                    worker_info['output_file'],
+                    worker_info['iface'],
+                    worker_info['validation_results']
+                )
+                self.worker.remaining_queue = worker_info['remaining_queue']  # Pass remaining queue
+                self.worker_thread = QThread()
+                self.worker.moveToThread(self.worker_thread)
+                
+                # Connect signals
+                self.worker_thread.started.connect(self.worker.run)
+                self.worker.error.connect(self.handle_error)
+                self.worker.load_layer.connect(self.load_layer)
+                self.worker.info.connect(self.show_info)
+                self.worker.file_size_warning.connect(self.handle_large_file_warning)
+                self.worker.finished.connect(lambda: self.handle_download_complete(worker_info['remaining_queue'], worker_info['extent']))
+                self.worker.progress.connect(self.update_progress)
+                self.progress_dialog.canceled.connect(self.cancel_download)
+                
+                # Set size warning accepted
+                self.worker.size_warning_accepted = True
+                
+                # Show progress dialog and start thread
+                self.progress_dialog.show()
+                self.worker_thread.start()
+                return
+            
+            else:  # Cancel
+                # Process next download in queue if available
+                if worker_info['remaining_queue']:
+                    self.process_download_queue(worker_info['remaining_queue'], worker_info['extent'])
+                else:
+                    self.cleanup_thread()
+                return
 
 def classFactory(iface):
     return QgisPluginGeoParquet(iface)
