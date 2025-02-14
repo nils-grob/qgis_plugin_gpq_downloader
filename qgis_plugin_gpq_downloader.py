@@ -8,7 +8,7 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtCore import pyqtSignal, QObject, Qt, QThread
 from qgis.core import (
     QgsProject, QgsRectangle, QgsVectorLayer, 
-    QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsSettings
+    QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsSettings, QgsSettings
 )
 import os
 import datetime
@@ -97,11 +97,30 @@ PRESET_DATASETS = {
     },
     "other": {
         "foursquare_places": {
-            "url": "hf://datasets/foursquare/fsq-os-places/release/dt=2025-01-10/places/parquet/*.parquet",
+            "url": "hf://datasets/foursquare/fsq-os-places/release/dt=2025-02-06/places/parquet/*.parquet",
             "info_url": "https://docs.foursquare.com/data-products/docs/places-overview",
             "needs_validation": False,
             "display_name": "Foursquare Places"
         }
+    }
+}
+
+SUPPORTED_FORMATS = {
+    "GeoParquet (*.parquet)": {
+        "extension": ".parquet",
+        "format_options": "(FORMAT 'parquet', COMPRESSION 'ZSTD')"
+    },
+    "GeoPackage (*.gpkg)": {
+        "extension": ".gpkg",
+        "format_options": "(FORMAT GDAL, DRIVER 'GPKG', SRS 'EPSG:4326')"
+    },
+    "FlatGeobuf (*.fgb)": {
+        "extension": ".fgb",
+        "format_options": "(FORMAT GDAL, DRIVER 'FlatGeobuf', SRS 'EPSG:4326')"
+    },
+    "GeoJSON (*.geojson)": {
+        "extension": ".geojson",
+        "format_options": "(FORMAT GDAL, DRIVER 'GeoJSON', SRS 'EPSG:4326')"
     }
 }
 
@@ -123,6 +142,7 @@ class Worker(QObject):
         self.validation_results = validation_results
         self.killed = False
         self.layer_name = layer_name
+        self.size_warning_accepted = False  # Ensure this is False on initialization
         self.size_warning_accepted = False  # Ensure this is False on initialization
 
     def get_bbox_info_from_metadata(self, conn):
@@ -650,9 +670,6 @@ class DataSourceDialog(QDialog):
         self.ok_button.clicked.connect(self.validate_and_accept)
         self.cancel_button.clicked.connect(self.reject)
         
-        # Set initial state
-        self.custom_radio.setChecked(True)
-        
         # Add after setting up the sourcecoop_combo
         self.update_sourcecoop_link(self.sourcecoop_combo.currentText())
         
@@ -930,6 +947,10 @@ class QgisPluginGeoParquet:
         self.iface.removeToolBarIcon(self.action)
 
     def run(self, default_source=None):
+        # Reset any existing worker
+        self.worker = None
+        self.worker_thread = None
+        
         dialog = DataSourceDialog(self.iface.mainWindow(), self.iface)
 
         selected_name = QgsSettings().value("gpq_downloader/radio_selection", section=QgsSettings.Plugins)
