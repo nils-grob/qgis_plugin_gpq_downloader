@@ -201,7 +201,7 @@ class Worker(QObject):
                     # Check size if exporting to GeoJSON
                     if self.output_file.lower().endswith('.geojson'):
                         estimated_size = self.estimate_file_size(conn, table_name)
-                        if estimated_size > 4096 and not self.size_warning_accepted:  # 20MB warning threshold
+                        if estimated_size > 4096 and not self.size_warning_accepted:  # 4GB warning threshold
                             self.file_size_warning.emit(estimated_size)
                             return
 

@@ -33,6 +33,7 @@ class DataSourceDialog(QDialog):
         self.requires_validation = True
         self.setWindowTitle("GeoParquet Data Source")
         self.setMinimumWidth(500)
+        
 
         base_path = os.path.dirname(os.path.abspath(__file__))
         presets_path = os.path.join(base_path, "data", "presets.json")
@@ -139,6 +140,8 @@ class DataSourceDialog(QDialog):
 
         # Connect base checkbox to show/hide subtype checkboxes and resize dialog
         self.base_checkbox.toggled.connect(self.base_subtype_widget.setVisible)
+        self.base_checkbox.toggled.connect(lambda checked: self.adjust_dialog_width(checked, 100))
+        
 
         overture_page.setLayout(overture_layout)
 
@@ -419,3 +422,10 @@ class DataSourceDialog(QDialog):
             self.validation_complete.emit(
                 True, "Validation successful", validation_results
             )
+
+    def adjust_dialog_width(self, checked, width):
+        """Adjust the dialog width based on the base checkbox state."""
+        if checked:
+            self.resize(self.width() + width, self.height())
+        else:
+            self.resize(self.width() - width, self.height())
