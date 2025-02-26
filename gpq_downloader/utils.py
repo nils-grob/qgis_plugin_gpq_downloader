@@ -171,6 +171,7 @@ class Worker(QObject):
                 CREATE TABLE {table_name} AS (
                     {select_query} FROM read_parquet('{self.dataset_url}')
                     {where_clause}
+                    ORDER BY ST_X(ST_Centroid(geometry)), ST_Y(ST_Centroid(geometry))
                 ) 
                 """
                 self.progress.emit(f"Downloading{layer_info} data...")
