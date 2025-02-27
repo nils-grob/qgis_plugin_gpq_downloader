@@ -8,6 +8,8 @@ from qgis.PyQt.QtCore import QCoreApplication, QTimer
 from qgis.core import QgsTask, QgsApplication
 from qgis.utils import iface
 
+from gpq_downloader import logger
+
 # Global flag to track installation status
 _duckdb_ready = False
 
@@ -20,12 +22,12 @@ class DuckDBInstallerTask(QgsTask):
         self.message = ""
         self.exception = None
         self.callback = callback
-        # print("Task initialized")
+        # logger.log("Task initialized")
 
     def run(self):
-        # print("Task run method started")
+        # logger.log("Task run method started")
         try:
-            print("Starting DuckDB installation...")
+            logger.log("Starting DuckDB installation...")
             if platform.system() == "Windows":
                 py_path = os.path.join(os.path.dirname(sys.executable), "python.exe")
             elif platform.system() == "Darwin":
@@ -42,12 +44,12 @@ class DuckDBInstallerTask(QgsTask):
             else:
                 py_path = sys.executable
 
-            # print(f"Using Python path: {py_path}")
-            # print(f"Running pip install command...")
+            # logger.log(f"Using Python path: {py_path}")
+            # logger.log(f"Running pip install command...")
 
             subprocess.check_call([py_path, "-m", "pip", "install", "--user", "duckdb"])
 
-            # print("Pip install completed, reloading modules...")
+            # logger.log("Pip install completed, reloading modules...")
             import importlib
 
             importlib.invalidate_caches()
@@ -59,12 +61,12 @@ class DuckDBInstallerTask(QgsTask):
         except subprocess.CalledProcessError as e:
             self.exception = e
             self.message = f"Pip install failed: {str(e)}"
-            print(f"Installation failed with error: {str(e)}")
+            logger.log(f"Installation failed with error: {str(e)}")
             return False
         except Exception as e:
             self.exception = e
             self.message = f"Failed to install/upgrade DuckDB: {str(e)}"
-            print(f"Installation failed with error: {str(e)}")
+            logger.log(f"Installation failed with error: {str(e)}")
             return False
 
     def finished(self, result):
@@ -80,13 +82,13 @@ class DuckDBInstallerTask(QgsTask):
             except ImportError:
                 pass
             msg_bar.pushSuccess("Success", self.message)
-            print(self.message)
+            logger.log(self.message)
             _duckdb_ready = True
             if self.callback:
                 self.callback()
         else:
             msg_bar.pushCritical("Error", self.message)
-            print(self.message)
+            logger.log(self.message)
             _duckdb_ready = False
 
 
@@ -98,18 +100,18 @@ def ensure_duckdb(callback=None):
         from packaging import version as version_parser
 
         if version_parser.parse(version) >= version_parser.parse("1.1.0"):
-            print(f"DuckDB {version} already installed")
+            logger.log(f"DuckDB {version} already installed")
             global _duckdb_ready
             _duckdb_ready = True
             if callback:
                 callback()
             return True
         else:
-            print(f"DuckDB {version} found but needs upgrade to 1.1.0+")
+            logger.log(f"DuckDB {version} found but needs upgrade to 1.1.0+")
             raise ImportError("Version too old")
 
     except ImportError:
-        print("DuckDB not found or needs upgrade, attempting to install/upgrade...")
+        logger.log("DuckDB not found or needs upgrade, attempting to install/upgrade...")
         try:
             msg_bar = iface.messageBar()
             progress = QProgressBar()
@@ -124,43 +126,43 @@ def ensure_duckdb(callback=None):
 
             # Create and start the task
             task = DuckDBInstallerTask(callback)
-            # print("Created installer task")
+            # logger.log("Created installer task")
 
             # Get the task manager and add the task
             task_manager = QgsApplication.taskManager()
-            # print(f"Task manager has {task_manager.count()} tasks")
+            # logger.log(f"Task manager has {task_manager.count()} tasks")
 
             # Add task and check if it was added successfully
             task_manager.addTask(task)
-            # print(f"Task added successfully: {success}")
+            # logger.log(f"Task added successfully: {success}")
 
             # Check task status
-            # print(f"Task manager now has {task_manager.count()} tasks")
-            # print(f"Task description: {task.description()}")
-            # print(f"Task status: {task.status()}")
+            # logger.log(f"Task manager now has {task_manager.count()} tasks")
+            # logger.log(f"Task description: {task.description()}")
+            # logger.log(f"Task status: {task.status()}")
 
             # Schedule periodic status checks with guarded access
             def check_status():
                 try:
                     status = task.status()
                 except RuntimeError:
-                    # print("Task has been deleted, stopping status checks")
+                    # logger.log("Task has been deleted, stopping status checks")
                     return
 
-                # print(f"Current task status: {status}")
+                # logger.log(f"Current task status: {status}")
                 if status == QgsTask.Queued:
-                    # print("Task still queued, retriggering...")
+                    # logger.log("Task still queued, retriggering...")
                     try:
                         QgsApplication.taskManager().triggerTask(task)
                     except RuntimeError:
-                        print("Failed to trigger task, object likely deleted")
+                        logger.log("Failed to trigger task, object likely deleted")
                         return
                     QTimer.singleShot(1000, check_status)
                 elif status == QgsTask.Running:
-                    # print("Task is running")
+                    # logger.log("Task is running")
                     QTimer.singleShot(1000, check_status)
                 elif status == QgsTask.Complete:
-                    print("Task completed")
+                    logger.log("Task completed")
 
             # Start checking status after a short delay
             QTimer.singleShot(100, check_status)
@@ -170,11 +172,11 @@ def ensure_duckdb(callback=None):
         except Exception as e:
             msg_bar.clearWidgets()
             msg_bar.pushCritical("Error", f"Failed to install/upgrade DuckDB: {str(e)}")
-            print(f"Failed to setup task with error: {str(e)}")
-            print(f"Error type: {type(e)}")
+            logger.log(f"Failed to setup task with error: {str(e)}")
+            logger.log(f"Error type: {type(e)}")
             import traceback
 
-            print(f"Traceback: {traceback.format_exc()}")
+            logger.log(f"Traceback: {traceback.format_exc()}")
             return False
 
 
@@ -205,7 +207,7 @@ class DummyPlugin:
         self.iface.messageBar().pushSuccess(
             "Success", "Plugin fully loaded with all functionalities"
         )
-        # print("Real plugin loaded and UI initialized.")
+        # logger.log("Real plugin loaded and UI initialized.")
 
 
 def classFactory(iface):

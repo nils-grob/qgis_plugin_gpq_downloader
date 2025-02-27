@@ -5,6 +5,8 @@ from qgis.PyQt.QtCore import pyqtSignal, QObject
 import os
 import duckdb
 
+from gpq_downloader import logger
+
 
 def transform_bbox_to_4326(extent, source_crs):
     """
@@ -57,34 +59,34 @@ class Worker(QObject):
             if key == b"geo":
                 try:
                     decoded_value = value.decode()
-                    print("\nRaw metadata value:")
-                    print(decoded_value)
+                    logger.log("\nRaw metadata value:")
+                    logger.log(decoded_value)
 
                     # Parse JSON using DuckDB's JSON functions
                     json_query = (
                         f"SELECT json_parse('{decoded_value}'::VARCHAR) as json"
                     )
-                    print("\nExecuting JSON query:")
-                    print(json_query)
+                    logger.log("\nExecuting JSON query:")
+                    logger.log(json_query)
 
                     geo_metadata = conn.execute(json_query).fetchone()[0]
-                    print("\nParsed metadata:")
-                    print(geo_metadata)
+                    logger.log("\nParsed metadata:")
+                    logger.log(geo_metadata)
 
                     if geo_metadata and "covering" in geo_metadata:
-                        print("\nFound covering:")
-                        print(geo_metadata["covering"])
+                        logger.log("\nFound covering:")
+                        logger.log(geo_metadata["covering"])
                         if "bbox" in geo_metadata["covering"]:
                             bbox_info = geo_metadata["covering"]["bbox"]
-                            print("\nExtracted bbox info:")
-                            print(bbox_info)
+                            logger.log("\nExtracted bbox info:")
+                            logger.log(bbox_info)
                             return bbox_info
                 except Exception as e:
-                    print(f"\nError parsing geo metadata: {str(e)}")
-                    print(f"Exception type: {type(e)}")
+                    logger.log(f"\nError parsing geo metadata: {str(e)}")
+                    logger.log(f"Exception type: {type(e)}")
                     import traceback
 
-                    print(traceback.format_exc())
+                    logger.log(traceback.format_exc())
                     continue
         return None
 
@@ -174,8 +176,8 @@ class Worker(QObject):
                 ) 
                 """
                 self.progress.emit(f"Downloading{layer_info} data...")
-                print("Executing SQL query:")
-                print(base_query)
+                logger.log("Executing SQL query:")
+                logger.log(base_query)
                 conn.execute(base_query)
                 
                 # Add check for empty results
@@ -218,8 +220,8 @@ class Worker(QObject):
                     else:
                         self.error.emit("Unsupported file format.")
                     
-                    print("Executing SQL query:")
-                    print(copy_query + format_options)
+                    logger.log("Executing SQL query:")
+                    logger.log(copy_query + format_options)
                     conn.execute(copy_query + format_options)
 
                 
@@ -310,7 +312,7 @@ class Worker(QObject):
             return 0
 
         except Exception as e:
-            print(f"Error estimating file size: {str(e)}")
+            logger.log(f"Error estimating file size: {str(e)}")
             return 0
 
     def process_schema_columns(self, schema_result):
@@ -364,8 +366,8 @@ class ValidationWorker(QObject):
             if key == b"geo":
                 try:
                     decoded_value = value.decode()
-                    print("\nRaw metadata value:")
-                    print(decoded_value)
+                    logger.log("\nRaw metadata value:")
+                    logger.log(decoded_value)
 
                     # Install and load JSON extension
                     conn.execute("INSTALL json;")
@@ -383,8 +385,8 @@ class ValidationWorker(QObject):
                         FROM temp_json
                     """).fetchone()
 
-                    print("\nExtracted bbox column name:")
-                    print(result[0] if result else None)
+                    logger.log("\nExtracted bbox column name:")
+                    logger.log(result[0] if result else None)
 
                     if result and result[0]:
                         # Remove quotes from the result if present
@@ -392,11 +394,11 @@ class ValidationWorker(QObject):
                         return bbox_col
 
                 except Exception as e:
-                    print(f"\nError parsing geo metadata: {str(e)}")
-                    print(f"Exception type: {type(e)}")
+                    logger.log(f"\nError parsing geo metadata: {str(e)}")
+                    logger.log(f"Exception type: {type(e)}")
                     import traceback
 
-                    print(traceback.format_exc())
+                    logger.log(traceback.format_exc())
                 finally:
                     # Clean up temporary table
                     conn.execute("DROP TABLE IF EXISTS temp_json")
