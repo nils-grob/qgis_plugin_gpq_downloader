@@ -66,7 +66,7 @@ class DuckDBInstallerTask(QgsTask):
         except Exception as e:
             self.exception = e
             self.message = f"Failed to install/upgrade DuckDB: {str(e)}"
-            logger.log(f"Installation failed with error: {str(e)}")
+            logger.log(f"Installation failed with error: {str(e)}", 2)
             return False
 
     def finished(self, result):
@@ -107,11 +107,11 @@ def ensure_duckdb(callback=None):
                 callback()
             return True
         else:
-            logger.log(f"DuckDB {version} found but needs upgrade to 1.1.0+")
+            logger.log(f"DuckDB {version} found but needs upgrade to 1.1.0+", 2)
             raise ImportError("Version too old")
 
     except ImportError:
-        logger.log("DuckDB not found or needs upgrade, attempting to install/upgrade...")
+        logger.log("DuckDB not found or needs upgrade, attempting to install/upgrade...", 2)
         try:
             msg_bar = iface.messageBar()
             progress = QProgressBar()
@@ -171,12 +171,12 @@ def ensure_duckdb(callback=None):
 
         except Exception as e:
             msg_bar.clearWidgets()
-            msg_bar.pushCritical("Error", f"Failed to install/upgrade DuckDB: {str(e)}")
-            logger.log(f"Failed to setup task with error: {str(e)}")
-            logger.log(f"Error type: {type(e)}")
+            msg_bar.pushCritical("Error", f"Failed to install/upgrade DuckDB: {str(e)}", 2)
+            logger.log(f"Failed to setup task with error: {str(e)}", 2)
+            logger.log(f"Error type: {type(e)}", 2)
             import traceback
 
-            logger.log(f"Traceback: {traceback.format_exc()}")
+            logger.log(f"Traceback: {traceback.format_exc()}", 2)
             return False
 
 
