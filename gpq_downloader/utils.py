@@ -171,7 +171,6 @@ class Worker(QObject):
                 CREATE TABLE {table_name} AS (
                     {select_query} FROM read_parquet('{self.dataset_url}')
                     {where_clause}
-                    ORDER BY ST_X(ST_Centroid(geometry)), ST_Y(ST_Centroid(geometry))
                 ) 
                 """
                 self.progress.emit(f"Downloading{layer_info} data...")
@@ -206,7 +205,15 @@ class Worker(QObject):
                             self.file_size_warning.emit(estimated_size)
                             return
 
-                    copy_query = f"COPY {table_name} TO '{self.output_file}'"
+                    # Construct the COPY query with Hilbert sorting
+                    copy_query = f"""
+                    COPY (
+                        SELECT * FROM {table_name}
+                        ORDER BY ST_Hilbert(
+                            geometry,
+                            (SELECT ST_Extent(ST_Extent_Agg(geometry))::BOX_2D FROM {table_name})
+                        )
+                    ) TO '{self.output_file}'"""
 
                     if file_extension == "parquet":
                         format_options = "(FORMAT 'parquet', COMPRESSION 'ZSTD');"
