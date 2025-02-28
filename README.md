@@ -2,7 +2,8 @@
 
 This repo contains a QGIS plugin for downloading GeoParquet data from cloud sources, including Overture Maps, Source Cooperative, and the ability to enter the location of any online GeoParquet file or partition. Just the user's current viewport then gets downloaded, as GeoParquet, DuckDB or GeoPackage.
 
-![gpq-download-demo5](https://github.com/user-attachments/assets/dc862317-1eb6-4ed4-b910-44ae22a60d71)
+![gpq-downloader-demo4](https://github.com/user-attachments/assets/10f2a73f-2aa6-45a1-9491-41e63b7fec24)
+
 
 The core idea is that GeoParquet can act more like a 'server', letting users download only the data they need, if you add a bit more smarts to the client. So this plugin uses [DuckDB](https://duckdb.org/) but abstracts all the details of forming the right queries to external sources, so users can just pick the data they want and pull it down with ease. And with GeoPackage output users don't even need to know anything about GeoParquet. More info is on the [plugin homepage](https://plugins.qgis.org/plugins/qgis_plugin_gpq_downloader/).
 
@@ -20,20 +21,18 @@ See [metadata.txt](gpq_downloader/metadata.txt) for more installation notes.
 
 ## Usage
 
-The plugin will install 3 buttons on the QGIS toolbar:
+The plugin will install 1 button on the QGIS toolbar:
 
-<img width="100" alt="Screenshot 2024-12-04 at 5 53 27 AM" src="https://github.com/user-attachments/assets/7dd43669-5fe1-4536-af08-1df6a427d145">
+![1_UuUno32b4P_UNUqJZvSPoQ](https://github.com/user-attachments/assets/16003294-9a76-42cb-a740-b5bbd308e484)
 
-All three open the same dialog box, but the Overture and Source Cooperative
-buttons take you straight to the relevant sections. The default button
-lets you enter the URL of any GeoParquet file or partition.
+It opens a dialog box, that lets you select Overture and Source Cooperative, Hugging Face or 'custom' - where you 
+can enter the location of any GeoParquet or partition file online.
 
-<img width="561" alt="Screenshot 2024-12-04 at 6 06 23 AM" src="https://github.com/user-attachments/assets/7866e0d6-f3eb-4390-bc70-09c931023f56">
+<img width="548" alt="Screenshot 2025-02-28 at 3 55 05 PM" src="https://github.com/user-attachments/assets/b45a97b3-452b-4a5e-922e-6b919baaf505" />
 
+To use it move to an area where you'd like to download data and then select which layer you'd like to download. From there you can choose the output format (GeoParquet, GeoPackage, DuckDB, GeoJSON or FlatGeobuf) and the location to download the data to.
 
-To use it move to an area where you'd like to download data and then select which layer you'd like to download. From there you can choose the output format (GeoParquet, GeoPackage, DuckDB or FlatGeobuf) and the location to download the data to.
-
-Downloads can sometimes take awhile, especially if the data provider hasn't optimized their GeoParquet files very well, or if you're downloading an area with a lot of data. Overture generally works the fastest for now, others may take a minute or two. But it should most always be faster than trying to figure out exactly which files you need and downloading them manually.
+Downloads can sometimes take awhile, especially if the data provider hasn't optimized their GeoParquet files very well, or if you're downloading an area with a lot of data. Overture is one of the faster ones for now, others may take a minute or two. But it should most always be faster than trying to figure out exactly which files you need and downloading them manually.
 
 For now we only support downloading into the current viewport, but hope to [improve that](https://github.com/cholmes/qgis_plugin_gpq_downloader/issues/10). 
 
