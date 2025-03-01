@@ -211,7 +211,7 @@ class Worker(QObject):
                         SELECT * FROM {table_name}
                         ORDER BY ST_Hilbert(
                             geometry,
-                            (SELECT ST_Extent(ST_Extent_Agg(geometry))::BOX_2D FROM {table_name})
+                            (SELECT ST_Extent(ST_Extent_Agg(COLUMNS(geometry)))::BOX_2D FROM {table_name})
                         )
                     ) TO '{self.output_file}'"""
 
