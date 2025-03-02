@@ -216,7 +216,7 @@ class Worker(QObject):
                     ) TO '{self.output_file}'"""
 
                     if file_extension == "parquet":
-                        format_options = "(FORMAT 'parquet', COMPRESSION 'ZSTD');"
+                        format_options = "(FORMAT 'parquet', COMPRESSION 'ZSTD', COMPRESSION_LEVEL 22);"
                     elif self.output_file.endswith(".gpkg"):
                         format_options = "(FORMAT GDAL, DRIVER 'GPKG');"
                     elif self.output_file.endswith(".fgb"):
