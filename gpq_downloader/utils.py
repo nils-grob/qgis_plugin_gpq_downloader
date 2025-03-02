@@ -205,10 +205,18 @@ class Worker(QObject):
                             self.file_size_warning.emit(estimated_size)
                             return
 
-                    copy_query = f"COPY {table_name} TO '{self.output_file}'"
+                    # Construct the COPY query with Hilbert sorting
+                    copy_query = f"""
+                    COPY (
+                        SELECT * FROM {table_name}
+                        ORDER BY ST_Hilbert(
+                            geometry,
+                            (SELECT ST_Extent(ST_Extent_Agg(COLUMNS(geometry)))::BOX_2D FROM {table_name})
+                        )
+                    ) TO '{self.output_file}'"""
 
                     if file_extension == "parquet":
-                        format_options = "(FORMAT 'parquet', COMPRESSION 'ZSTD');"
+                        format_options = "(FORMAT 'parquet', COMPRESSION 'ZSTD', COMPRESSION_LEVEL 22);"
                     elif self.output_file.endswith(".gpkg"):
                         format_options = "(FORMAT GDAL, DRIVER 'GPKG');"
                     elif self.output_file.endswith(".fgb"):
