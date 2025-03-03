@@ -96,7 +96,6 @@ class DataSourceDialog(QDialog):
             if key != 'base':  # Handle base separately
                 checkbox = QCheckBox(key.title())
                 self.overture_checkboxes[key] = checkbox
-                # We'll connect all at once at the end instead of individually
                 checkbox_layout.addWidget(checkbox)
 
         # Add the horizontal checkbox layout to main layout
@@ -251,48 +250,6 @@ class DataSourceDialog(QDialog):
             button_name,
             section=QgsSettings.Plugins,
         )
-
-    def save_checkbox_states(self) -> None:
-        # Save main checkboxes
-        for key, checkbox in self.overture_checkboxes.items():
-            QgsSettings().setValue(
-                f"gpq_downloader/checkbox_{key}",
-                checkbox.isChecked(),
-                section=QgsSettings.Plugins,
-            )
-        
-        # Save base subtype checkboxes
-        for key, checkbox in self.base_subtype_checkboxes.items():
-            QgsSettings().setValue(
-                f"gpq_downloader/base_subtype_checkbox_{key}",
-                checkbox.isChecked(),
-                section=QgsSettings.Plugins,
-            )
-
-    def load_checkbox_states(self) -> None:
-        # Load main checkboxes
-        for key, checkbox in self.overture_checkboxes.items():
-            checked = QgsSettings().value(
-                f"gpq_downloader/checkbox_{key}",
-                False,
-                type=bool,
-                section=QgsSettings.Plugins,
-            )
-            checkbox.setChecked(checked)
-        
-        # Load base subtype checkboxes
-        for key, checkbox in self.base_subtype_checkboxes.items():
-            checked = QgsSettings().value(
-                f"gpq_downloader/base_subtype_checkbox_{key}",
-                False,
-                type=bool,
-                section=QgsSettings.Plugins,
-            )
-            checkbox.setChecked(checked)
-            
-        # Update base subtype widget visibility based on base checkbox state
-        self.base_subtype_widget.setVisible(self.base_checkbox.isChecked())
-
 
     def handle_overture_selection(self, text):
         """Show/hide base subtype combo based on selection"""
@@ -484,3 +441,44 @@ class DataSourceDialog(QDialog):
             self.resize(self.width() + width, self.height())
         else:
             self.resize(self.width() - width, self.height())
+
+    def save_checkbox_states(self) -> None:
+        # Save main checkboxes
+        for key, checkbox in self.overture_checkboxes.items():
+            QgsSettings().setValue(
+                f"gpq_downloader/checkbox_{key}",
+                checkbox.isChecked(),
+                section=QgsSettings.Plugins,
+            )
+        
+        # Save base subtype checkboxes
+        for key, checkbox in self.base_subtype_checkboxes.items():
+            QgsSettings().setValue(
+                f"gpq_downloader/base_subtype_checkbox_{key}",
+                checkbox.isChecked(),
+                section=QgsSettings.Plugins,
+            )
+
+    def load_checkbox_states(self) -> None:
+        # Load main checkboxes
+        for key, checkbox in self.overture_checkboxes.items():
+            checked = QgsSettings().value(
+                f"gpq_downloader/checkbox_{key}",
+                False,
+                type=bool,
+                section=QgsSettings.Plugins,
+            )
+            checkbox.setChecked(checked)
+        
+        # Load base subtype checkboxes
+        for key, checkbox in self.base_subtype_checkboxes.items():
+            checked = QgsSettings().value(
+                f"gpq_downloader/base_subtype_checkbox_{key}",
+                False,
+                type=bool,
+                section=QgsSettings.Plugins,
+            )
+            checkbox.setChecked(checked)
+            
+        # Update base subtype widget visibility based on base checkbox state
+        self.base_subtype_widget.setVisible(self.base_checkbox.isChecked())
