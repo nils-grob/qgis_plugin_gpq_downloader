@@ -51,11 +51,27 @@ class QgisPluginGeoParquet:
 
     def unload(self):
         # Clean up worker and thread when plugin is unloaded
+        if self.worker_thread and self.worker_thread.isRunning():
+            QMessageBox.warning(
+                self.iface.mainWindow(),
+                "Download in Progress",
+                "Please wait for any downloads to complete before unloading the plugin."
+            )
+            return
         self.cleanup_thread()
         # Remove all actions from the toolbar
         self.iface.removeToolBarIcon(self.action)
 
     def run(self, default_source=None):
+        # Check if a worker is already running
+        if self.worker is not None and self.worker_thread is not None and self.worker_thread.isRunning():
+            QMessageBox.warning(
+                self.iface.mainWindow(),
+                "Download in Progress",
+                "A download is already in progress. Please wait for it to complete before starting a new download."
+            )
+            return
+
         # Reset any existing worker
         self.worker = None
         self.worker_thread = None
