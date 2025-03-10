@@ -264,7 +264,6 @@ class DataSourceDialog(QDialog):
 
         # For Overture datasets, we know they're valid so we can skip validation
         if self.overture_radio.isChecked():
-            self.selected_urls = urls
             self.accept()
             return
 
@@ -278,8 +277,9 @@ class DataSourceDialog(QDialog):
                     return
 
                 # Create progress dialog for validation
-                progress_dialog = QProgressDialog("Validating URL...", "Cancel", 0, 0, self)
-                progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+                self.progress_dialog = QProgressDialog("Validating URL...", "Cancel", 0, 0, self)
+                self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+                self.progress_dialog.canceled.connect(self.cancel_validation)
 
                 # Create validation worker
                 self.validation_worker = ValidationWorker(url, self.iface, self.iface.mapCanvas().extent())
@@ -288,25 +288,26 @@ class DataSourceDialog(QDialog):
 
                 # Connect signals
                 self.validation_thread.started.connect(self.validation_worker.run)
-                self.validation_worker.progress.connect(progress_dialog.setLabelText)
+                self.validation_worker.progress.connect(self.progress_dialog.setLabelText)
                 self.validation_worker.finished.connect(
                     lambda success, message, results: self.handle_validation_result(
-                        success, message, results, progress_dialog, urls
+                        success, message, results
                     )
                 )
                 self.validation_worker.needs_bbox_warning.connect(self.show_bbox_warning)
 
                 # Start validation
                 self.validation_thread.start()
-                progress_dialog.exec()
+                self.progress_dialog.exec()
                 return
 
         # For other preset sources, we can skip validation
-        self.selected_urls = urls
         self.accept()
 
-    def handle_validation_result(self, success, message, validation_results, progress_dialog, urls):
+    def handle_validation_result(self, success, message, validation_results):
         """Handle validation result in the dialog"""
+        self.cleanup_validation()
+        
         if success:
             self.validation_complete.emit(True, message, validation_results)
             self.accept()
@@ -314,11 +315,18 @@ class DataSourceDialog(QDialog):
             QMessageBox.warning(self, "Validation Error", message)
             self.validation_complete.emit(False, message, validation_results)
 
-        if progress_dialog:
-            progress_dialog.close()
+    def cancel_validation(self):
+        """Handle validation cancellation"""
+        if self.validation_worker:
+            self.validation_worker.killed = True
+        self.cleanup_validation()
+
+    def cleanup_validation(self):
+        """Clean up validation resources"""
+        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+            self.progress_dialog.close()
             self.progress_dialog = None
 
-    def cleanup_validation(self, success):
         if self.validation_worker:
             self.validation_worker.deleteLater()
             self.validation_worker = None
@@ -329,16 +337,9 @@ class DataSourceDialog(QDialog):
             self.validation_thread.deleteLater()
             self.validation_thread = None
 
-        if hasattr(self, "progress_dialog") and self.progress_dialog:
-            self.progress_dialog.close()
-            self.progress_dialog = None
-
-        if not success:
-            self.reject()
-
     def closeEvent(self, event):
         """Handle dialog closing"""
-        self.cleanup_validation(False)
+        self.cleanup_validation()
         super().closeEvent(event)
 
     def get_urls(self):
