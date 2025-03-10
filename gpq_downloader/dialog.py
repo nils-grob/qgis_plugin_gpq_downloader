@@ -426,15 +426,17 @@ class DataSourceDialog(QDialog):
             QMessageBox.StandardButton.No,
         )
 
-        validation_results = {"has_bbox": False, "schema": None}
+        validation_results = {"has_bbox": False, "schema": None, "bbox_column": None}
         if reply == QMessageBox.StandardButton.No:
             self.validation_complete.emit(
                 False, "Download cancelled by user.", validation_results
             )
         else:
+            # Accept the dialog when user clicks Yes
             self.validation_complete.emit(
                 True, "Validation successful", validation_results
             )
+            self.accept()
 
     def adjust_dialog_width(self, checked, width):
         """Adjust the dialog width based on the base checkbox state."""
@@ -483,3 +485,8 @@ class DataSourceDialog(QDialog):
             
         # Update base subtype widget visibility based on base checkbox state
         self.base_subtype_widget.setVisible(self.base_checkbox.isChecked())
+
+    def on_validation_finished(self, success, message, results):
+        # This method should handle the validation results
+        # Check how it's setting validation_results
+        pass
