@@ -71,7 +71,7 @@ class QgisPluginGeoParquet:
         
         if dialog.exec() == QDialog.DialogCode.Accepted:
             # Get the selected URLs from the dialog
-            urls = dialog.selected_urls
+            urls = dialog.get_urls()
             extent = self.iface.mapCanvas().extent()
             
             # First, collect all file locations from user
