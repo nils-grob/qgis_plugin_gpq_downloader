@@ -18,7 +18,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import pyqtSignal, Qt, QThread
 from qgis.core import QgsSettings
 import os
-from gpq_downloader.utils import ValidationWorker
+from .utils import ValidationWorker
 
 
 class DataSourceDialog(QDialog):
