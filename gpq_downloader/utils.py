@@ -42,6 +42,7 @@ class Worker(QObject):
         self.extent = extent
         self.output_file = output_file
         self.iface = iface
+        #logger.log(f"Worker __init__ received validation_results: {validation_results}")
         self.validation_results = validation_results
         self.killed = False
         self.layer_name = layer_name  # Ensure this is included if needed
@@ -59,27 +60,27 @@ class Worker(QObject):
             if key == b"geo":
                 try:
                     decoded_value = value.decode()
-                    logger.log("\nRaw metadata value:")
-                    logger.log(decoded_value)
+                    #logger.log("\nRaw metadata value:")
+                    #logger.log(decoded_value)
 
                     # Parse JSON using DuckDB's JSON functions
                     json_query = (
                         f"SELECT json_parse('{decoded_value}'::VARCHAR) as json"
                     )
-                    logger.log("\nExecuting JSON query:")
-                    logger.log(json_query)
+                    #logger.log("\nExecuting JSON query:")
+                    #logger.log(json_query)
 
                     geo_metadata = conn.execute(json_query).fetchone()[0]
-                    logger.log("\nParsed metadata:")
-                    logger.log(geo_metadata)
+                    #logger.log("\nParsed metadata:")
+                    #logger.log(geo_metadata)
 
                     if geo_metadata and "covering" in geo_metadata:
-                        logger.log("\nFound covering:")
-                        logger.log(geo_metadata["covering"])
+                        #logger.log("\nFound covering:")
+                        #logger.log(geo_metadata["covering"])
                         if "bbox" in geo_metadata["covering"]:
                             bbox_info = geo_metadata["covering"]["bbox"]
-                            logger.log("\nExtracted bbox info:")
-                            logger.log(bbox_info)
+                            #logger.log("\nExtracted bbox info:")
+                            #logger.log(bbox_info)
                             return bbox_info
                 except Exception as e:
                     logger.log(f"\nError parsing geo metadata: {str(e)}", 2)
@@ -96,6 +97,9 @@ class Worker(QObject):
             self.progress.emit(f"Connecting to database{layer_info}...")
             source_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
             bbox = transform_bbox_to_4326(self.extent, source_crs)
+
+            # Log validation results dictionary at the beginning of run
+            #logger.log(f"Full validation_results at start of run: {self.validation_results}")
 
             conn = duckdb.connect()
             try:
@@ -147,16 +151,33 @@ class Worker(QObject):
                     else:
                         select_query = f'SELECT {", ".join(columns)}'
 
-                # Construct WHERE clause based on bbox information
+                # First check: Does the schema actually have a bbox column?
+                has_bbox_in_schema = False
+                if 'schema' in self.validation_results and self.validation_results['schema']:
+                    for row in self.validation_results['schema']:
+                        if row[0].lower() == 'bbox' and 'struct' in row[1].lower():
+                            has_bbox_in_schema = True
+                            #logger.log("Found actual bbox column in schema")
+                            break
+                    
+                    if not has_bbox_in_schema:
+                        #logger.log("No bbox column found in schema, overriding validation_results")
+                        # Force override incorrect bbox settings if schema doesn't have bbox
+                        self.validation_results['has_bbox'] = False
+                        self.validation_results['bbox_column'] = None
+
+                # Now use the corrected validation_results
                 bbox_column = self.validation_results.get('bbox_column')
-                if bbox_column:
-                    # Use the validated bbox column (either 'bbox' or from metadata)
+                #logger.log(f"Final bbox_column value: {bbox_column}")
+
+                if bbox_column is not None:
+                    #logger.log(f"Using bbox column for query: {bbox_column}")
                     where_clause = f"""
                     WHERE "{bbox_column}".xmin BETWEEN {bbox.xMinimum()} AND {bbox.xMaximum()}
                     AND "{bbox_column}".ymin BETWEEN {bbox.yMinimum()} AND {bbox.yMaximum()}
                     """
                 else:
-                    # Fall back to ST_Intersects if no bbox column found
+                    #logger.log("Using spatial filter instead of bbox")
                     where_clause = f"""
                     WHERE ST_Intersects(
                         geometry,
@@ -374,8 +395,8 @@ class ValidationWorker(QObject):
             if key == b"geo":
                 try:
                     decoded_value = value.decode()
-                    logger.log("\nRaw metadata value:")
-                    logger.log(decoded_value)
+                    #logger.log("\nRaw metadata value:")
+                    #logger.log(decoded_value)
 
                     # Install and load JSON extension
                     conn.execute("INSTALL json;")
@@ -393,8 +414,8 @@ class ValidationWorker(QObject):
                         FROM temp_json
                     """).fetchone()
 
-                    logger.log("\nExtracted bbox column name:")
-                    logger.log(result[0] if result else None)
+                    #logger.log("\nExtracted bbox column name:")
+                    #logger.log(result[0] if result else None)
 
                     if result and result[0]:
                         # Remove quotes from the result if present
@@ -422,6 +443,7 @@ class ValidationWorker(QObject):
             conn.execute("LOAD httpfs;")
 
             if not self.needs_validation():
+                #logger.log("Dataset doesn't need validation, using default bbox column")
                 self.finished.emit(
                     True,
                     "Validation successful",
@@ -447,19 +469,23 @@ class ValidationWorker(QObject):
             ):
                 validation_results["has_bbox"] = True
                 validation_results["bbox_column"] = "bbox"
+                #logger.log(f"Emitting finished with bbox column: {validation_results}")
+                self.finished.emit(True, "Validation successful", validation_results)
             else:
                 # Check metadata for alternative bbox column
                 bbox_column = self.check_bbox_metadata(conn)
                 if bbox_column:
                     validation_results["has_bbox"] = True
                     validation_results["bbox_column"] = bbox_column
-
-            if not validation_results["has_bbox"]:
-                # Emit signal for main thread to show warning
-                self.needs_bbox_warning.emit()
-                return
-
-            self.finished.emit(True, "Validation successful", validation_results)
+                    #logger.log(f"Emitting finished with metadata bbox column: {validation_results}")
+                    self.finished.emit(True, "Validation successful", validation_results)
+                else:
+                    # Emit signal for main thread to show warning
+                    #logger.log("No bbox column found, emitting warning signal")
+                    self.needs_bbox_warning.emit()
+                    # Also emit the finished signal with the correct validation results
+                    #logger.log(f"Emitting finished with no bbox column: {validation_results}")
+                    self.finished.emit(True, "Validation with no bbox column", validation_results)
 
         except Exception as e:
             self.finished.emit(False, f"Error validating source: {str(e)}", {})
