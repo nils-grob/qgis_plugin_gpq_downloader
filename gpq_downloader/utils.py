@@ -5,7 +5,7 @@ from qgis.PyQt.QtCore import pyqtSignal, QObject
 import os
 import duckdb
 
-from gpq_downloader import logger
+from . import logger
 
 
 def transform_bbox_to_4326(extent, source_crs):

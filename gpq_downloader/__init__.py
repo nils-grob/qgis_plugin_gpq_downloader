@@ -8,71 +8,10 @@ from qgis.PyQt.QtCore import QCoreApplication, QTimer
 from qgis.core import QgsTask, QgsApplication, QgsSettings
 from qgis.utils import iface, loadPlugin, startPlugin, unloadPlugin, plugins
 
-from gpq_downloader import logger
+from . import logger
 
 # Global flag to track installation status
 _duckdb_ready = False
-
-
-def check_for_old_plugin():
-    """Check if the old plugin is installed and handle migration"""
-    plugins_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), 'python', 'plugins')
-    old_plugin_dir = os.path.join(plugins_dir, 'qgis_plugin_gpq_downloader')
-    
-    # Check if old plugin directory exists
-    if os.path.exists(old_plugin_dir):
-        logger.log("Found old plugin directory, handling migration")
-        
-        # Check if old plugin is active
-        if 'qgis_plugin_gpq_downloader' in plugins:
-            logger.log("Old plugin is active, showing migration dialog")
-            # Show migration message
-            QMessageBox.information(
-                iface.mainWindow(),
-                "GeoParquet Downloader Plugin Update",
-                "The GeoParquet Downloader plugin has been updated with a new directory structure.\n\n"
-                "The old version has been automatically deactivated.\n\n"
-                "If you see duplicate buttons in your toolbar, please restart QGIS.\n\n"
-                "To avoid seeing both plugins listed in your Plugin Manager, you can safely uninstall "
-                "version 0.6.0 or earlier of the GeoParquet Downloader plugin."
-            )
-            
-            # Deactivate old plugin
-            deactivate_old_plugin()
-        else:
-            logger.log("Old plugin exists but is not active")
-            # Just deactivate it in settings to prevent future loading
-            settings = QgsSettings()
-            settings.setValue("PythonPlugins/qgis_plugin_gpq_downloader", False)
-
-
-def deactivate_old_plugin():
-    """Attempt to disable the old qgis_plugin_gpq_downloader plugin."""
-    logger.log("Deactivating old plugin")
-    
-    # Mark the old plugin as disabled in QGIS settings:
-    settings = QgsSettings()
-    settings.setValue("PythonPlugins/qgis_plugin_gpq_downloader", False)
-    settings.sync()  # write immediately
-    
-    # Unload the plugin from memory if it's still loaded:
-    if "qgis_plugin_gpq_downloader" in plugins:
-        try:
-            unloadPlugin("qgis_plugin_gpq_downloader")
-            logger.log("Unloaded old plugin")
-        except Exception as e:
-            logger.log(f"Failed to unload old plugin: {str(e)}", 1)
-    
-    # As a fallback, rename the plugin folder so QGIS won't load it next time:
-    try:
-        plugins_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "python", "plugins")
-        old_plugin_dir = os.path.join(plugins_dir, "qgis_plugin_gpq_downloader")
-        disabled_plugin_dir = os.path.join(plugins_dir, "qgis_plugin_gpq_downloader_disabled")
-        if os.path.exists(old_plugin_dir) and not os.path.exists(disabled_plugin_dir):
-            os.rename(old_plugin_dir, disabled_plugin_dir)
-            logger.log("Renamed old plugin directory")
-    except Exception as e:
-        logger.log(f"Error renaming plugin folder: {str(e)}", 1)
 
 
 class DuckDBInstallerTask(QgsTask):
@@ -241,56 +180,9 @@ def ensure_duckdb(callback=None):
             return False
 
 
-# Instead of a standalone delayed_plugin_load, we now embed the real plugin loading logic
-# into our dummy plugin.
-class DummyPlugin:
-    def __init__(self, iface):
-        self.iface = iface
-        self.real_plugin = None
-
-    def initGui(self):
-        # Optionally show a temporary message or a "loading" placeholder
-        self.iface.messageBar().pushInfo(
-            "Info", "Plugin is loading… Please wait while dependencies install."
-        )
-        
-        # Check for old plugin immediately
-        QTimer.singleShot(100, check_for_old_plugin)
-
-    def unload(self):
-        # Unload the real plugin if it has been loaded.
-        if self.real_plugin:
-            self.real_plugin.unload()
-
-    def loadRealPlugin(self):
-        from gpq_downloader.plugin import QgisPluginGeoParquet
-
-        self.real_plugin = QgisPluginGeoParquet(self.iface)
-        # The real plugin adds the buttons and other UI elements
-        self.real_plugin.initGui()
-        self.iface.messageBar().pushSuccess(
-            "Success", "Plugin fully loaded with all functionalities"
-        )
-        # logger.log("Real plugin loaded and UI initialized.")
-
-
 def classFactory(iface):
-    """Plugin entry point"""
-    # Setup the path for duckdb
-    plugin_dir = os.path.dirname(__file__)
-    ext_libs_path = os.path.join(plugin_dir, "ext-libs")
-    duckdb_path = os.path.join(ext_libs_path, "duckdb")
+    """Load the plugin class."""
+    from .plugin import QgisPluginGeoParquet
+    return QgisPluginGeoParquet(iface)
 
-    # Add paths to sys.path if they're not already there
-    for path in [ext_libs_path, duckdb_path]:
-        if path not in sys.path:
-            sys.path.insert(0, path)
 
-    # Create the dummy plugin instance
-    dummy_plugin = DummyPlugin(iface)
-
-    # Schedule DuckDB installation and, once complete, load the real plugin UI.
-    QTimer.singleShot(0, lambda: ensure_duckdb(dummy_plugin.loadRealPlugin))
-
-    # Return the dummy plugin so QGIS has a valid plugin instance immediately
-    return dummy_plugin

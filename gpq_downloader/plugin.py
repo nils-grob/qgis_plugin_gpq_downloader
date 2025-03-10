@@ -20,8 +20,8 @@ import os
 import datetime
 from pathlib import Path
 
-from gpq_downloader.dialog import DataSourceDialog
-from gpq_downloader.utils import Worker
+from .dialog import DataSourceDialog
+from .utils import Worker
 
 
 class QgisPluginGeoParquet:
