@@ -271,9 +271,15 @@ class DataSourceDialog(QDialog):
         if self.custom_radio.isChecked():
             for url in urls:
                 if not (url.startswith('http://') or url.startswith('https://') or 
-                       url.startswith('s3://') or url.startswith('file://') or url.startswith('hf://')):
+                       url.startswith('s3://') or url.startswith('file://') or url.startswith('hf://') or
+                       url.startswith('minio://')):
                     QMessageBox.warning(self, "Validation Error", 
-                        "URL must start with http://, https://, s3://, hf://, or file://")
+                        "URL must start with one of the following protocols:\n"
+                        "- http:// or https:// (for web servers)\n"
+                        "- s3:// (for Amazon S3)\n"
+                        "- minio:// (for MinIO servers, format: minio://host:port/bucket/path)\n"
+                        "- hf:// (for Hugging Face datasets)\n"
+                        "- file:// (for local files)")
                     return
 
                 # Create progress dialog for validation
